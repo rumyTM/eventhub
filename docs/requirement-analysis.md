@@ -75,10 +75,11 @@ Concrete rules per module. Contracts are detailed in [`system-architecture.md`](
   discount applied when a fixed group of **N units** of the same ticket type is bought together (e.g. buy 4 at a set
   discounted total); no partial bundles. Inventory still decrements by the N underlying units.
 - **Orders / holds.** Checkout creates an order in `pending` with one hold per line item, reserving a **count** of
-  inventory (not named seats) with `expires_at = now + 15 min`. Availability is computed as
-  `available = total_quantity − quantity_sold − active_holds`, evaluated **inside a distributed lock + transaction**
-  to prevent oversell. `quantity_sold` increments **only on payment success**; expired holds return inventory via
-  the `ReleaseExpiredHolds` cron. Re-POSTing checkout with the same idempotency key returns the same order.
+  inventory (not named seats) with `expires_at = now + 15 min`. Availability counts only non-expired holds —
+  `available = total_quantity − quantity_sold − SUM(active holds with expires_at > now())` — evaluated **inside the
+  hybrid lock + transaction** to prevent oversell (expiry enforced at read time; the `ReleaseExpiredHolds` cron is
+  housekeeping, see §4). `quantity_sold` increments **only on payment success**. Re-POSTing checkout with the same
+  idempotency key returns the same order.
 - **Payments.** core-api calls payment-service with a shared secret + `Idempotency-Key`. A signed webhook callback
   flips the order to `paid`, increments `quantity_sold`, issues QR tickets, and writes a ledger entry.
 - **Refunds.** Policy by time-to-event against the event's UTC instant: **>48h → 100%, 24–48h → 50%, <24h → 0%**.
@@ -115,11 +116,22 @@ For each: **Ambiguity → Assumption → Why.**
   payouts compute against that immutable historical rate, not the current platform rate.** Why: a vendor must be paid
   the terms in force when the ticket sold — recomputing past payouts against a later rate change would be incorrect
   and unauditable; the snapshot makes payout math reproducible from the ledger alone.
+- **Event capacity ceiling.** Ambiguity: is there a hard cap on an event's size independent of how it's split into
+  ticket types? → **Yes — `event.capacity` is a hard ceiling; the sum of its ticket types' inventory must not exceed
+  it (`SUM(ticket_types.quantity_total) ≤ capacity`), enforced on ticket-type create/edit.** Why: capacity models the
+  physical venue/limit, while ticket types merely slice it into tiers; enforcing the sum stops a vendor from
+  overselling the room by adding or enlarging tiers.
+- **Event lifecycle transitions.** Ambiguity: who advances an event through its lifecycle? → **`published → ongoing →
+  completed` is driven automatically by a scheduled command off `starts_at`/`ends_at`; `cancelled` is a manual
+  vendor/admin action.** Why: time-based transitions shouldn't wait on someone clicking, but cancellation is a
+  deliberate decision (it triggers mass refunds), so it stays explicit and manual.
 - **Hold vs payment / inventory decrement.** Ambiguity: does a hold reserve named tickets or a count; when is
-  inventory decremented? → **A hold reserves a count, not named seats; `available = total − quantity_sold −
-  active_holds`; `quantity_sold` increments only on payment success; expired holds return inventory.** Why: count-
-  based reservation is sufficient (no seat map) and the "sold only on payment" rule prevents abandoned carts from
-  permanently consuming inventory.
+  inventory decremented; when does an expired hold free up? → **A hold reserves a count, not named seats;
+  availability counts only *non-expired* holds — `available = total − quantity_sold − SUM(holds WHERE status=active
+  AND expires_at > now())`; `quantity_sold` increments only on payment success.** Why: counting expiry **at read
+  time** means a hold never blocks stock past its 15-minute life even if cleanup hasn't run; the `ReleaseExpiredHolds`
+  cron (every 5 min) is **housekeeping** (tidies stale rows, simplifies waitlist logic), not the thing that frees
+  inventory — so correctness never depends on the cron's cadence.
 - **Waitlist.** Ambiguity: per event or per ticket type; offer window? → **Per ticket type; a freed ticket is
   offered to the next person with a 30-minute claim window; nice-to-have.** Why: ticket-type granularity matches how
   scarcity actually occurs (VIP sells out, general doesn't); a bounded claim window keeps the queue moving.
@@ -127,6 +139,29 @@ For each: **Ambiguity → Assumption → Why.**
   batch and vendor-requested; default commission 10%; minimum payout 5,000 BDT, below which the balance rolls to the
   next cycle.** Why: a batch guarantees regular settlement while on-request serves urgent cashflow; a minimum
   threshold avoids dust payouts whose transaction cost exceeds their value.
+- **Settling revenue (only after the event happens).** Ambiguity: when is vendor revenue paid out, given it may
+  still be refunded? → **Revenue is settled only *after the event is marked `completed`* — never before; each payout
+  reserves a refundable amount (`reserved_refund`) against not-yet-settled orders, and a negative `clawback` ledger
+  entry is the fallback only for the residual case where already-settled revenue is later refunded (e.g. a post-event
+  dispute override).** Why: settling only after the event has actually happened means a cancelled or no-show event
+  never produces a paid-then-clawed-back vendor (the money simply was never paid), so clawback (and a transiently
+  negative vendor balance) becomes the rare exception rather than the norm — see ADR-20.
+- **Vendor-cancelled event.** Ambiguity: who bears the cost when a vendor cancels, and does the platform keep its
+  fee? → **A vendor/admin cancellation refunds every attendee 100% (policy-overridden), funded by debiting the
+  vendor (a negative `clawback` ledger entry), and the platform refunds its own commission too — it earns nothing on
+  a cancelled event.** Why: the vendor caused the cancellation, so they bear the cost, not the attendee or the
+  platform; refunding our commission is the fair, trust-preserving choice and keeps the ledger symmetric (sale +
+  full reversal net to zero). Because revenue settles only after completion, the vendor usually hasn't been paid yet,
+  so the debit nets before any real money left the platform — see ADR-23.
+- **Refund request shape (no attendee-named amount).** Ambiguity: does the attendee specify a refund amount? → **No —
+  a refund is requested against an order (optionally a subset of its tickets/items); core-api auto-derives the amount
+  as `policy% × selected line totals` (100/50/0% by time-to-event). "Partial" means a subset of tickets, not an
+  arbitrary sum.** Why: keeping the money math server-side makes it untamperable (a client can't request an arbitrary
+  value) and consistent with the time-based policy; the payment-service merely executes the computed amount.
+- **Seat selection.** Ambiguity: are seats named/assigned, or sold by count? → **Ticket *types* (VIP / general /
+  early-bird) are sold per type by count; there is no seat map and no named/assigned seat selection — explicitly out
+  of scope.** Why: count-based inventory is sufficient for the money-correctness core and avoids a seat-map data
+  model and its allocation/locking complexity, which add no marks here.
 - **Ticket transfers.** Ambiguity: in scope? → **Out of scope (deferred).** Why: transfers add ownership-change and
   re-issuance complexity that does not advance the money-correctness core; cut first under time pressure.
 - **Multi-currency payouts, taxes/fees.** → **Explicitly out of scope.** Why: single-currency BDT only; tax handling
@@ -146,6 +181,10 @@ For each: scenario → risk → how the design handles it.
 - **Timezone conflict.** Event in Dhaka, attendee in another tz, server in UTC. Risk: refund cutoff, reminders, and
   sales windows computed against the wrong clock → wrong refund %, mis-timed reminders. Handling: a single canonical
   UTC instant (`starts_at`) drives all window math; the event's IANA tz is for display only.
+- **Reminder timing imprecision.** The reminder cron runs hourly, so a "24h before" reminder actually fires within
+  **±1 hour** of the mark. Risk: a slightly-early/late reminder, or (if mishandled) a double-send. Handling: accepted
+  simplification — ±1hr is immaterial for a courtesy reminder — and the unique `event_reminders(event_id, type)` row
+  guarantees it's sent **once only** regardless of how many times the cron re-scans.
 - **Currency rounding.** Percentage commission (10%) and partial refunds (50%) on odd amounts produce fractional
   poisha. Risk: balances that don't reconcile; float drift. Handling: all money is **integer poisha, no float**; a
   documented rounding rule (round half-up to the nearest poisha) is applied once at calculation, and the ledger is
@@ -153,15 +192,24 @@ For each: scenario → risk → how the design handles it.
 - **Refund abuse.** (a) buy → refund → rebuy cycling to lock inventory; (b) refund after check-in; (c) partial-
   refund stacking beyond the original charge. Risk: inventory denial-of-service and over-refunding. Handling: refunds
   validated against the **ledger** (cumulative refunded ≤ charged); refund blocked once a ticket is checked in;
-  in-policy auto / out-of-policy → dispute; repeated cycling is flagged for admin review.
+  in-policy auto / out-of-policy → dispute; repeated cycling is flagged for admin review. **v1 stops at the
+  flag-for-admin-review signal**; fuller abuse tooling (per-attendee refund-rate scoring + auto-block) is deferred to
+  "with more time" in the decision log.
+- **Cart-exhaustion abuse (hold hoarding).** A single buyer opens many concurrent holds to starve inventory and deny
+  other attendees. Risk: a malicious or buggy client locks up stock without ever purchasing. Handling: cap the number
+  of **concurrent active holds per attendee per `ticket_type`**; checkout attempts beyond the cap are rejected until
+  existing holds convert or expire — and the 15-min hold expiry returns abandoned holds regardless, so the attack
+  surface is bounded in both count and time.
 - **Double-charge.** Client retry or webhook re-delivery. Risk: charging twice. Handling: **idempotency key** on
   every money call; the payment-service stores key→result and replays the original result on a duplicate.
 - **Double-pay (payout batch crash mid-run).** Batch crashes after paying some vendors. Risk: re-running pays them
   again. Handling: **per-vendor transactional marking** + idempotency key per payout; already-settled vendors are
   skipped on rerun.
 - **Refund after payout.** An attendee refunds a ticket whose revenue was already paid out to the vendor. Risk: the
-  vendor has been paid for a sale that no longer exists; naive logic can't claw it back. Handling: the refund writes
-  a **negative ledger entry** that offsets the vendor's **next** payout cycle. The running vendor balance **may go
+  vendor has been paid for a sale that no longer exists; naive logic can't claw it back. Handling: this is **rare by
+  design** — settlement is gated on the refund window (the §4 reserve model), so most refunds happen before the money
+  is ever paid out. For the residual case (event cancelled, dispute override), the refund writes a **negative
+  `clawback` ledger entry** that offsets the vendor's **next** payout cycle. The running vendor balance **may go
   negative** and is carried forward (reconciled) against future sales rather than reversing a completed payout; the
   ledger remains the auditable source of truth for the deficit.
 - **Payment-service down / slow webhook.** Order stuck `pending`; webhook never arrives. Risk: inventory held

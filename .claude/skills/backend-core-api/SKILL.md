@@ -20,9 +20,10 @@ Redis, but it does **not** contain gateway logic or notification delivery (those
 ## Key files & patterns
 - Layering is strict: **Controller -> Service -> Repository -> Model**. Use the `laravel-api-endpoint` skill or
   `/make-endpoint` / `/crud` to scaffold — they encode the templates.
+- Primary keys are **ULIDs** (`HasUlids`, `foreignUlid`); never assume or expose sequential integer IDs.
 - Money never float (`decimal:2`/minor units + currency). Enums string-backed with `label()`. Resources output enums
   as `{value,label}` and datetimes as UTC ISO-8601 + the event timezone.
-- The high-risk paths (write tests as you go): **order holds + distributed locking** (`Actions/Orders/HoldTickets`,
+- The high-risk paths (write tests as you go): **order holds + hybrid locking — Redis lock + authoritative DB row lock (ADR-07)** (`Actions/Orders/HoldTickets`,
   the checkout service), **payout calculation** (`Actions/Payouts/CalculatePayout`), **inventory accounting**.
 
 ## How to run tests

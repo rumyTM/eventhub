@@ -52,7 +52,7 @@ code, tests, API docs, seed data) are tracked in [`PLAN.md`](./PLAN.md); progres
         │ webhook callback (shared secret)│ outbound HTTP
         └──────────► core-api             └──────────► vendor webhook URLs
                                           
-   Shared infra:   MySQL :3306 (one DB per service)   ·   Redis :6379 (queues + locks)
+   Shared infra:   MySQL :3306 (one DB per service)   ·   Redis :6379 (queues + inventory lock; DB row lock is authoritative)
 ```
 
 ### Services at a glance
@@ -142,11 +142,19 @@ Seed data creates admin / vendor / attendee logins (see `WORKLOG.md` / seeder ou
 - **All routes versioned** under `/api/v1`.
 - **Money:** store as integer minor units or `decimal:N` — **never float**. Always record currency. Every financial
   state change is written to an append-only audit/ledger table, never updated in place.
-- **Idempotency + locking:** ticket inventory uses a distributed lock (Redis / DB row lock) to prevent oversell;
-  money calls use idempotency keys. See `services/core-api/CLAUDE.md` §Orders and `services/payment-service/CLAUDE.md`.
-- **Security (PCI-DSS aware):** never put a card PAN, CVV, token, OTP, secret, or merchant credential in code, logs,
-  tests, or responses — use `[PLACEHOLDER]`. Validate every input. No mass assignment (`$request->validated()` only).
-  Sensitive logging is redacted. Flag any field that stores more than necessary.
+- **Idempotency + locking:** ticket inventory uses a **hybrid lock** to prevent oversell — a short-lived Redis lock
+  per `ticket_type` (reduces contention; satisfies the "distributed" requirement across multiple core-api workers)
+  **plus** an authoritative DB row lock (`SELECT ... FOR UPDATE`) inside the checkout transaction. The DB row lock is
+  the correctness guard, so oversell is impossible even if Redis is unavailable; Redis is an optimization, not the
+  source of truth. Money calls use idempotency keys. See `services/core-api/CLAUDE.md` §Orders + ADR-07.
+- **Identifiers:** primary keys are **ULIDs** (Laravel `HasUlids`) — non-enumerable across tenants and time-sortable;
+  foreign keys use `foreignUlid`.
+- **Security & data protection:** we deliberately stay **out of PCI-DSS scope** — no raw card data (PAN/CVV) is ever
+  stored or transmitted; the (simulated) gateway holds the card, we keep only tokens/refs. Separately, never put a
+  token, OTP, secret, merchant credential, or KYC/PII (NID, TIN, bank account) in code, logs, tests, or responses —
+  use `[PLACEHOLDER]`; that's general security + data-privacy, not PCI. Validate every input. No mass assignment
+  (`$request->validated()` only). Sensitive logging is redacted. Consider Bangladesh Bank / data-privacy obligations
+  for stored customer/vendor data; flag any field that stores more than necessary.
 - **Errors:** shaped once per service (Laravel: `bootstrap/app.php` `withExceptions()`). Controllers/services catch
   only expected domain exceptions; everything else bubbles to the global handler and returns a generic 500 — never
   leak SQL, stack traces, or class names to the client.
@@ -165,6 +173,10 @@ Seed data creates admin / vendor / attendee logins (see `WORKLOG.md` / seeder ou
 **Subagents:** `laravel-code-reviewer` (review pending PHP changes against standards),
 `laravel-test-writer` (write/run feature + unit tests), `financial-logic-reviewer` (audit money paths for
 idempotency, locking, audit-trail, oversell, double-pay).
+
+**Laravel Boost** (dev-only) is installed in `core-api` and `payment-service` — use its MCP tools (`search-docs` for
+version-accurate Laravel docs, plus DB-schema/app-info/last-error/log/Tinker) when working in those services. Boost's
+generic guidelines are advisory; the per-service `CLAUDE.md` is authoritative where they differ. See ADR-22.
 
 ---
 
@@ -211,7 +223,7 @@ Pick the emoji that matches the change (most-used in this repo):
 | `:recycle:` | Refactor (no behaviour change) |
 | `:card_file_box:` | Database — migrations, schema, ERD |
 | `:seedling:` | Seed data |
-| `:lock:` | Security / auth / redaction / PCI fixes |
+| `:lock:` | Security / auth / redaction / data-protection fixes |
 | `:zap:` | Performance (e.g. indexing, locking efficiency) |
 | `:wrench:` | Config (docker-compose, .env.example, providers) |
 | `:truck:` | Move / rename files |

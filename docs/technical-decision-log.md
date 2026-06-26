@@ -52,18 +52,20 @@
   by hand (no shared types across the language boundary). I accept that because a Laravel queue worker — while
   reusing the stack — gives weaker DLQ/backoff ergonomics and re-couples the failure domain I deliberately split out.
 
-### ADR-04: Queue transport = Redis (queues + coordination, not the inventory lock)
-- Decision: Redis (BullMQ) as the queue/coordination layer. **The inventory oversell lock is NOT on Redis** — it is a
-  DB row lock (see ADR-07).
+### ADR-04: Redis for queues, coordination, and the fronting inventory lock
+- Decision: Redis (BullMQ) is the queue/coordination layer **and** the short-lived per-`ticket_type` lock that
+  **fronts** the authoritative DB row lock (ADR-07).
 - Alternatives: RabbitMQ; Kafka; SQS.
 - Why: I already need Redis for the notification queue, so using it for general coordination keeps the compose file to
-  one extra dependency. For this scale, Redis + BullMQ's at-least-once delivery and retry is sufficient and
-  operationally trivial. The point worth stating: I deliberately did **not** put the money-correctness guarantees on
-  Redis — the lock and idempotency both live in the DB — so Redis being "only" at-least-once is fine, because
-  duplicate deliveries are absorbed by idempotency keys (ADR-09).
+  one extra dependency. The point worth stating: the money-correctness **guarantees** live in the DB — the
+  *authoritative* inventory lock is the DB row lock, and idempotency is DB-backed (ADR-09) — while Redis provides the
+  **distributed front**: a short-lived per-`ticket_type` lock that satisfies the brief's "distributed" requirement and
+  cuts `FOR UPDATE` contention on hot ticket types, plus at-least-once queue delivery. So Redis being only
+  at-least-once, or briefly unavailable, is fine: duplicate deliveries are absorbed by idempotency keys (ADR-09), and
+  a Redis-lock outage degrades to DB-only locking without losing correctness.
 - Trade-off: RabbitMQ offers richer routing and stronger delivery guarantees, and Kafka offers durable replay — none
   of which this workload needs. I'm trading those capabilities for a smaller operational footprint, with the safety
-  net that the correctness-critical paths don't depend on the queue's guarantees at all.
+  net that correctness never depends on Redis — only the contention optimization and delivery latency do.
 
 ### ADR-05: Response envelope `{ success, message, data, errors }` with real HTTP codes
 - Decision: one envelope across core-api + payment-service (a strict superset of the brief's `{success,data,message}`),
@@ -86,22 +88,24 @@
 - Trade-off: more files and boilerplate per feature, mitigated by scaffolding commands (`/make-endpoint`, `/crud`).
   For trivial CRUD it's over-engineered, but on a money system the consistency is worth more than the saved files.
 
-### ADR-07: Inventory oversell prevention = pessimistic DB row lock
-- Decision: `SELECT … FOR UPDATE` on the `ticket_type` row, taken **inside the checkout transaction**, around the
-  availability check and hold creation.
-- Alternatives considered: Redis distributed lock (Redlock / `Cache::lock`); optimistic locking (version column +
-  retry); a single atomic conditional `UPDATE … WHERE available > 0`.
-- Why: I want the lock and the inventory mutation to share **exactly one boundary**. With `FOR UPDATE` inside the
-  transaction the lock auto-releases on commit/rollback — there's no TTL to tune, no owner-token bookkeeping, and no
-  way for a crashed holder to leave a dangling lock (the failure modes that make a Redis lock subtly hard to get
-  right). It also removes Redis from the money-critical path entirely: oversell prevention stays correct even if
-  Redis is down. On the highest-risk code in the system, a correctness argument I can make locally and defend in one
-  paragraph is worth more than peak throughput.
-- Trade-off: under heavy contention on a single hot ticket type, `FOR UPDATE` serializes buyers and can hold
-  row/gap locks longer than a short-lived Redis lock would, and it ties oversell safety to the primary DB's
-  availability. I accept lower peak throughput on a single SKU for correctness I can reason about and one fewer
-  dependency. At real scale I'd revisit with optimistic concurrency + retry, or sharded/bucketed inventory, to remove
-  the single-row serialization point — and load-test it (see "with more time").
+### ADR-07: Inventory oversell prevention = hybrid lock (Redis lock + authoritative DB row lock)
+- Decision: a **short-lived Redis lock per `ticket_type`** taken *around* the critical section, **plus** an
+  authoritative **DB row lock** (`SELECT … FOR UPDATE` on the `ticket_type` row) *inside* the checkout transaction.
+  The DB row lock is the correctness guard; the Redis lock is an optimization layered on top.
+- Alternatives considered: DB row lock alone; Redis lock alone; optimistic versioning (version column + retry).
+- Why: I want both the brief's stated requirement and a guarantee I can defend. The Redis lock literally satisfies the
+  **"distributed" requirement** — it serializes contending checkouts across multiple core-api workers *before* they
+  reach the database, which also **cuts DB lock contention on hot ticket types** (popular events) by thinning the
+  herd that hits `FOR UPDATE`. But Redis is not trusted for correctness: the **DB row lock inside the transaction
+  remains authoritative**, so oversell is impossible **even if Redis is unavailable** — we simply fall back to
+  DB-only locking and lose the contention optimization, not the guarantee. I rejected **Redis-alone** precisely
+  because a lock hiccup or a TTL expiring mid-critical-section could let two workers oversell — unacceptable on the
+  money path. I rejected **optimistic versioning** because it thrashes (compare-and-retry storms) under exactly the
+  high-contention popular-event case we most need to handle well.
+- Trade-off: two coordination mechanisms instead of one — more moving parts to reason about and operate. I accept
+  that because the responsibilities are cleanly split: correctness lives entirely in the DB row lock, and Redis is a
+  pure performance optimization that can fail open without compromising correctness. At larger scale I'd add
+  sharded/bucketed inventory and load-test the last-ticket path (see "with more time").
 
 ### ADR-08: Money as integer minor units (poisha) + currency
 - Decision: store all amounts as integers in minor units (1 BDT = 100 poisha) with a currency code; round half-up
@@ -204,10 +208,11 @@
   encrypted objects served **only** via short-lived signed URLs (never raw bytes or a durable public path); redact all
   of it from logs; define a retention window aligned to Bangladesh Bank / data-privacy guidance.
 - Alternatives: store identifiers in plaintext; serve documents from a public bucket; keep KYC data indefinitely.
-- Why: KYC is regulated personal and business data and this platform is PCI-DSS aware, so it must be handled to a
-  higher bar than the rest of the schema. Encrypting identifiers and serving documents via per-request signed URLs
-  limits blast radius if the DB or an endpoint leaks; redaction keeps PII out of logs and traces; a defined retention
-  window means we don't hoard regulated data beyond its purpose.
+- Why: KYC is regulated **personal and business data (PII)** — NID, TIN/BIN, bank account — governed by data-privacy
+  law and **Bangladesh Bank KYC/AML obligations**, *not* by PCI-DSS (which covers cardholder data this platform never
+  stores). That regulatory weight is what demands a higher bar than ordinary tables. Encrypting identifiers and
+  serving documents via per-request signed URLs limits blast radius if the DB or an endpoint leaks; redaction keeps
+  PII out of logs and traces; a defined retention window means we don't hoard regulated data beyond its purpose.
 - Trade-off: encryption complicates searching/indexing those fields, signed URLs add a generation step, and retention
   needs a purge job. All accepted as the cost of handling regulated data responsibly. **Open item:** confirm the exact
   mandated KYC retention period with compliance/PM before go-live.
@@ -238,39 +243,100 @@
   monitoring and replay tooling. Acceptable — notifications are not a money path and delivery status is tracked
   throughout, so nothing is silently lost.
 
+### ADR-19: ULID primary keys, not auto-increment bigint
+- Decision: ULIDs for all primary keys (Laravel `HasUlids`), with `foreignUlid` foreign keys — not auto-increment
+  bigint.
+- Alternatives considered: bigint auto-increment; UUIDv4.
+- Why: in a multi-tenant money app, sequential integer IDs are **enumerable** — they leak counts and let one tenant
+  guess another's resources (vendor A incrementing through order IDs to probe vendor B's orders). ULIDs are
+  **non-enumerable**, closing that whole class of IDOR/enumeration risk. They're also **time-sortable** (lexicographic
+  = chronological), so unlike random **UUIDv4** they preserve index locality — new rows append to the end of the
+  index instead of scattering random inserts across the B-tree, which keeps write performance and page utilization
+  healthy.
+- Trade-off: larger keys (16 bytes vs 8 for bigint) and therefore slightly larger indexes and foreign keys.
+  Negligible at this scale, and a price I'll happily pay for the multi-tenant security posture — guessable IDs on a
+  payments platform are not something I want to defend later.
+
+### ADR-20: Defer settling revenue until the event is completed; reserve-for-refund; clawback as fallback
+- Decision: an order's revenue is **not settled** in a payout until the **event is marked `completed`** — i.e. it
+  actually happened. Payouts carry a `reserved_refund` amount and a `payout_items` link to the exact orders they
+  settle. A refund that still slips past settlement (a post-event dispute override) is handled by the existing
+  **negative `clawback` ledger entry** (ADR-13), netted into the vendor's next payout.
+- Alternatives considered: settle immediately and always claw back; settle once each order is past its refund window
+  (event `starts_at` − 24h) while the event may still be cancelled.
+- Why: the cleanest way to avoid clawing back money is to **not pay out money that might still be refunded in the
+  first place** — and the strongest version of that is to settle only once the event has actually **happened**. Gating
+  on event completion (not merely on the per-order refund window) means a **cancelled or no-show event never produces
+  a paid-then-clawed-back vendor**: the money simply was never settled. This eliminates the common refund-after-payout
+  case entirely, so clawback drops to a rare fallback for genuinely exceptional post-event events (e.g. an admin
+  dispute override). `payout_items` makes every settlement **traceable to the exact orders** it covers, so the books
+  reconcile and an auditor can follow every cent from an order to its settlement.
+- Trade-off: vendors wait longer for funds — revenue settles only after the event completes, not at sale — accepted as
+  the cost of never paying out money that might still be refunded, and it pairs cleanly with the cancellation refund
+  policy (ADR-23) where the vendor, not the platform, bears a cancellation.
+
+### ADR-21: Role authorization via a backed enum, not spatie/laravel-permission
+- Decision: role-based access is a string-backed PHP enum on `users` (`admin|vendor|attendee`) + an `EnsureRole`
+  middleware for route gating + policies for row-level ownership. Not spatie/laravel-permission.
+- Alternatives considered: spatie/laravel-permission; a hand-rolled roles/permissions table.
+- Why: there are exactly three fixed roles, one per user, with no dynamic or granular permissions — no admin-defined
+  roles, no multi-role users, no permission-management UI. An enum + middleware + policies is sufficient, on-convention
+  (I use backed enums for every fixed value set), and avoids three tables and a dependency for no benefit. The hardest
+  authorization requirement — vendor A must never see vendor B's data — is **row ownership**, solved by policies and
+  query-scoping on `vendor_id` regardless of the role mechanism, so spatie wouldn't even address it.
+- Trade-off: admin-defined roles or granular per-user permissions would mean migrating to spatie/laravel-permission
+  (noted in "with more time"). For this scope, adopting it now would be over-engineering.
+
+### ADR-22: Laravel Boost for AI-assisted Laravel development (dev-only)
+- Decision: install Laravel Boost (`composer require laravel/boost --dev`; `php artisan boost:install`) in core-api
+  and payment-service — Laravel's first-party AI toolkit (MCP server + guidelines). Dev-only; not in the Node
+  notification-service or Next.js frontend; never shipped to production.
+- Alternatives considered: no AI tooling beyond my hand-authored CLAUDE.md + skills; relying on generic web docs.
+- Why: the brief makes AI-augmented development non-negotiable and grades AI workflow/DX at 15%. Boost's
+  version-accurate `search-docs` (scoped to my installed Laravel 11 + package versions) sharply cuts the main
+  AI-on-Laravel failure mode — writing APIs from the wrong version — and its live DB-schema/app-info/last-error/log/
+  Tinker introspection lets the agent inspect real state instead of guessing, which directly improves correctness on
+  the money path. Committing it demonstrates a structured, reproducible AI workflow.
+- Trade-off: a dev dependency plus a local MCP server to run, and Boost's auto-generated guidelines are generic and
+  can drift from this project's stricter conventions (layering, hybrid lock, ULID, ledger, envelope) — so the project
+  CLAUDE.md is declared authoritative where they differ. Applies only to the two Laravel services.
+
+### ADR-23: Event cancellation refunds 100%, funded by the vendor; platform refunds its commission too
+- Decision: a vendor/admin-cancelled event refunds **every attendee 100%** (policy-overridden, ignoring the normal
+  100/50/0% time bands). The refund is **funded by debiting the vendor** (a negative `clawback` ledger entry), and the
+  **platform also refunds its own commission** — it earns nothing on a cancelled event.
+- Alternatives considered: platform keeps its commission (the vendor absorbs the full refund); platform eats the
+  refund (covers it itself).
+- Why: the **vendor caused the cancellation**, so they bear the cost — not the platform, and certainly not the
+  attendee, who must be made whole. Refunding our own commission too is the fair, trust-preserving choice (charging a
+  fee on an event that never happened would be indefensible) and it keeps the ledger **symmetric** — the original sale
+  and its full reversal net to exactly zero. Funding the refund by **debiting the vendor through the ledger** means the
+  balance can go negative and reconcile against future sales (ADR-13) rather than reversing already-completed payouts.
+- Trade-off: a vendor balance can go **negative** after a cancellation. Acceptable — it's the honest accounting, and
+  because settlement only happens after the event completes (ADR-20) we usually **haven't paid the vendor out yet**
+  anyway, so in the common case the negative balance is netted before any real money left the platform.
+
 ---
 
 ## Trade-offs made due to the 5-day constraint
 
-- **Simulated gateways and email, not real integrations.** The assessment is about the correctness of the money
-  *orchestration*, not provider SDKs. Gateways sit behind `PaymentGatewayContract`, so dropping in a real provider is
-  a localized change, not a rewrite.
-- **Functional, not polished, frontend.** The UI demonstrates the data flow and the checkout/hold experience; pixel
-  polish would trade directly against backend correctness, which is graded higher and is where the risk lives.
-- **Single currency (ADR-12) and deferred nice-to-haves.** Ticket transfers, waitlist, per-vendor commission
-  overrides, and QR check-in polish are cut in that order if time runs short — none touch money correctness.
-- **Direct enqueue to Redis instead of a transactional outbox.** A crash between the DB commit and the enqueue could
-  theoretically drop a notification; I accept that because the failure is bounded (notifications are a courtesy, not a
-  money path) and the hold-expiry + idempotency cover the money-relevant cases. The outbox is the first thing I'd add
-  (below).
-- **Manual shared secrets and no CI/CD.** Fine for a single-operator take-home; called out as scale work below.
+- **Frontend is functional, not polished.** Just enough UI to show the data flow and the checkout/hold experience — basic styling, minimal client-side validation and error states. Backend correctness was the priority.
+- **Tests focus on the money paths.** The required unit tests (order holds/expiry, concurrent oversell, payout calculation, inventory) are thorough; I did not aim for full coverage across every endpoint and service.
+- **Nice-to-have features cut.** Ticket transfers, waitlist processing, per-vendor commission overrides, and QR-check-in polish are deferred — none affect money correctness.
+- **Admin analytics kept basic.** Plain totals (sales, active events, vendor count) rather than charts or rich dashboards.
+- **Notifications are fire-and-forget.** core-api enqueues notification jobs directly; if the process crashed between saving an order and enqueuing, a notification could be missed. Acceptable because notifications are not a money path, and the money flows are protected by idempotency and the hold-expiry safety net.
 
-## With more time (what I'd improve, add, or redesign)
 
-- **Transactional outbox for core-api → notification publishing.** Write the job to an outbox table in the same
-  transaction as the state change, with a relay that enqueues to Redis — so publishing is atomic with the commit and
-  effectively exactly-once, closing the direct-enqueue gap above.
-- **Saga / explicit compensation for the cross-service charge flow** instead of relying on webhook + hold-expiry —
-  named compensating actions for each step rather than a timeout as the backstop.
-- **Real gateway integration with tokenization/vaulting** so a PAN never touches our systems, shrinking PCI scope
-  rather than just simulating around it.
-- **Oversell path at scale (revisiting ADR-07):** optimistic concurrency + retry, or sharded/bucketed inventory, to
-  remove the single-row serialization point — backed by a concurrency load test on the last-ticket scenario.
-- **Observability:** the `trace_id` is already plumbed end-to-end; I'd add distributed tracing export, metrics, and
-  alerting on queue depth, DLQ size, and stuck-`pending` orders so partial failures are *seen*, not just survived.
-- **Contract tests between services + OpenAPI codegen for the frontend client**, so the hand-synced job/HTTP payloads
-  (the cost noted in ADR-03) can't silently drift.
-- **Multi-currency + FX and a tax/fee engine** (ADR-12) when expanding beyond Bangladesh — the schema already carries
-  `currency` to make this a logic change, not a migration.
-- **Platform hardening:** per-service CI/CD pipelines, a secrets manager with rotation (ADR-10), and an automated
-  KYC-retention purge job (ADR-16).
+## With more time — what I'd improve, add, or redesign
+
+- **Finish the deferred features:** ticket transfers and waitlist processing.
+- **Integrate a real payment gateway and real email** in place of the simulators.
+- **Dynamic roles/permissions (revisiting ADR-21):** adopt spatie/laravel-permission if roles become admin-defined or permissions become granular/per-user.
+- **Multi-currency + FX and a tax/fee engine** (ADR-12) when expanding beyond Bangladesh — the schema already carries `currency` to make this a logic change, not a migration.
+- **Refund-abuse scoring + auto-block:** track refund rate per attendee and flag/auto-block repeat abusers (e.g. buy→refund→rebuy cyclers) rather than relying only on per-refund ledger validation. Deferred from v1.
+- **Broaden the tests** and add a concurrency/load test that hammers last-ticket checkout to prove no oversell under real parallel traffic.
+- **Richer admin analytics and reporting** — per-event and per-vendor breakdowns.
+- **Frontend polish:** proper form validation, loading/empty/error states, mobile layout, accessibility.
+- **Configurable commission and refund policy** — per-vendor rates and per-event refund rules.
+- **Basic operability:** health-check endpoints, log aggregation, and alerts on stuck pending orders and dead-lettered notifications.
+- **CI/CD pipeline and proper secrets management** for real deployments.

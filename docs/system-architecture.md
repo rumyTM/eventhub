@@ -29,7 +29,7 @@
 └───────┬────────────────┘   └───────────┬─────────────┘     │
         └── webhook callback ─────────────┼── outbound ──► vendor URLs
                        (to core-api) ─────┘
-   Infra:  MySQL :3306 (db-per-service; inventory oversell lock = DB row lock)   ·   Redis :6379 (queues + coordination)
+   Infra:  MySQL :3306 (db-per-service; authoritative inventory lock = DB row lock)   ·   Redis :6379 (queues + per-ticket_type lock that fronts it)
 ```
 
 ### Service boundaries & justification
@@ -44,11 +44,15 @@ core?*
   ledger live in one database), and splitting them would trade a local transaction for a distributed one — strictly
   worse for money correctness. The boundary is drawn around *what must be transactionally consistent together.*
 - **payment-service (money/gateway isolation).** Split out because it changes for a different reason (new gateways,
-  PCI surface) and must contain blast radius: it is the only service that touches gateway credentials and raw charge
-  flows, so keeping it separate means a gateway integration bug or a credential-handling concern never sits in the
-  same process as the order DB. It is **stateless about EventHub's domain** — it knows charges, refunds, payouts, and
-  idempotency keys, not "events" or "vendors" beyond the IDs core-api passes. This makes gateways swappable behind
-  `PaymentGatewayContract` and lets the money path scale and be hardened independently.
+  and the *would-be* PCI-scope surface if real gateways were integrated) and must contain blast radius: it is the only
+  service that touches gateway credentials and charge flows, so keeping it separate means a gateway integration bug or
+  a credential-handling concern never sits in the same process as the order DB. **Scope note:** because gateways here
+  are **simulated and no raw cardholder data is ever stored**, the whole platform stays **out of PCI scope** today;
+  isolating this service is what would *keep PCI scope contained to it alone* if a real gateway were later added. (PCI
+  applies only to cardholder data — not to EventHub's KYC/PII, which is governed separately; see ADR-16.) It is
+  **stateless about EventHub's domain** — it knows charges, refunds, payouts, and idempotency keys, not "events" or
+  "vendors" beyond the IDs core-api passes. This makes gateways swappable behind `PaymentGatewayContract` and lets the
+  money path scale and be hardened independently.
 - **notification-service (slow/unreliable outbound I/O).** Split out because email and vendor webhooks are **slow,
   failure-prone, and bursty** — exactly the workload you never want on a synchronous checkout path. Behind a Redis
   queue with retry/backoff and a DLQ, a flaky vendor endpoint or a mail outage degrades *delivery latency*, never the
@@ -71,17 +75,22 @@ distributed transaction across an `orders-service` and an `inventory-service` wo
 
 ## 2. Authentication & authorization strategy
 
-**User auth (frontend → core-api).** Laravel Sanctum personal-access tokens carried as `Authorization: Bearer`.
-Every user has a `role` enum (`admin | vendor | attendee`); an `EnsureRole` middleware gates route groups by role,
-and `php artisan`-style **policies** enforce the finer-grained checks. Tokens are issued at login and revoked at
-logout; no session cookies for the API.
+**User auth (frontend → core-api).** Laravel Sanctum personal-access tokens carried as `Authorization: Bearer`,
+persisted in Sanctum's framework-provided `personal_access_tokens` table (hashed; not modelled in the ERD as it's
+framework infrastructure). Every user has a `role` enum (`admin | vendor | attendee`); an `EnsureRole` middleware
+gates route groups by role, and `php artisan`-style **policies** enforce the finer-grained checks. Tokens are issued
+at login and revoked at logout; no session cookies for the API.
 
 **Authorization is role + ownership, in two layers.** Role decides *which routes* you may call; ownership decides
 *which rows*. A vendor may only read/mutate events, ticket types, orders, and payouts reachable through its own
 `vendor_id` (enforced in policies, never in controllers); an attendee may only see/refund its **own** orders and is
 blocked from all admin/vendor routes; admin-only actions (KYC decisions, commission settings, dispute resolution)
 sit behind the admin role. Ownership checks are mandatory even on "obvious" routes so an authenticated vendor can
-never reach another vendor's data by guessing IDs.
+never reach another vendor's data by guessing IDs. As defence-in-depth, **all primary keys are ULIDs** (ADR-19), so
+IDs are non-enumerable across tenants — an attacker can't walk sequential integers to probe another vendor's orders
+even before the ownership policy rejects them. Roles are a backed enum (not spatie/laravel-permission) — three fixed
+roles, one per user; row-level ownership is enforced by policies/scoping on `vendor_id` regardless of the role
+mechanism (see ADR-21).
 
 **Inter-service auth (server-to-server).** Every cross-service HTTP call carries a **static shared-secret bearer
 token**, defined per service in `.env` (`PAYMENT_SERVICE_TOKEN`, etc.). Payment-service and notification-service
@@ -89,10 +98,12 @@ endpoints are **never publicly reachable** — they sit on the internal network 
 shared secret. core-api → notification-service goes over the **Redis queue** (trusted network + queue name), not HTTP.
 
 **Webhook integrity (replay-safe).** The payment-service → core-api callback is verified by **two** factors: the
-shared-secret bearer token *and* an `X-Signature` header that is an **HMAC-SHA256 of the raw request body** keyed by
-the shared secret. The signature (not just the bearer) is what survives replay/tampering — the handler recomputes the
-HMAC over the received body and rejects on mismatch. Vendor-facing webhooks from notification-service are signed the
-same way, keyed by each vendor's own `webhook_secret`.
+shared-secret bearer token *and* an `X-Signature` header that is an **HMAC-SHA256** keyed by the shared secret. To
+defeat replay (not just tampering), the signature covers a **timestamp + nonce** alongside the raw body —
+`HMAC(timestamp ‖ nonce ‖ body)`, sent as `X-Timestamp` / `X-Nonce` headers. The handler recomputes the HMAC, rejects
+on mismatch, rejects a stale timestamp (outside a small skew window), and rejects a nonce it has already seen — so a
+captured-and-replayed request fails even though its signature is valid. Vendor-facing webhooks from
+notification-service are signed the same way, keyed by each vendor's own `webhook_secret`.
 
 **Rate limiting.** Sensitive routes sit behind **named rate limiters** — `auth` (login/register, to blunt
 credential stuffing), `checkout`, and `refund` — each throttled per user/IP; an exceeded limit returns **HTTP 429**
@@ -115,9 +126,10 @@ expand and keep in sync with the implementation. Full endpoint list belongs in t
     { "kind": "early_bird", "price": 5000, "currency": "BDT", "quantity_total": 100,
       "sales_start": "2026-07-01T00:00:00Z", "sales_end": "2026-07-15T00:00:00Z" }
   ] }
-// Response 201
+// Response 201  (ids are ULIDs — ADR-19)
 { "success": true, "message": "Event created", "errors": null,
-  "data": { "event": { "id": 1, "status": {"value":"draft","label":"Draft"}, "timezone": "Asia/Dhaka", "...": "..." } } }
+  "data": { "event": { "id": "01HF8Z9Q7K3M2N4P5R6S7T8V9W", "status": {"value":"draft","label":"Draft"},
+            "timezone": "Asia/Dhaka", "capacity": 500, "...": "..." } } }
 ```
 **Rules.** Vendor-only (role + KYC `verified`). Validation: `title` required; `timezone` a valid IANA zone;
 `ends_at > starts_at`; each ticket type needs `kind ∈ {early_bird,vip,general}`, integer `price ≥ 0` (poisha),
@@ -131,30 +143,42 @@ half-written ticket-type set.
 ### 3.2 Purchase ticket (start checkout) — `POST /api/v1/orders/checkout` (attendee)
 ```jsonc
 // Request  (Idempotency-Key header carried for the order)
-{ "items": [ { "ticket_type_id": 12, "quantity": 2 } ] }
-// Response 201 — hold created, payment pending
+{ "items": [ { "ticket_type_id": "01HF8ZB0A1C2D3E4F5G6H7J8K9", "quantity": 2 } ] }
+// Response 201 — hold created, payment pending  (ids are ULIDs — ADR-19)
 { "success": true, "message": "Checkout started", "errors": null,
-  "data": { "order": { "id": 99, "status": {"value":"pending"}, "currency": "BDT", "total": 10000,
-            "hold_expires_at": "2026-06-27T12:15:00Z" },
-            "payment": { "ref": "[PLACEHOLDER]", "status": "pending" } } }
+  "data": { "order": { "id": "01HF8ZC1B2D3E4F5G6H7J8K9M0", "status": {"value":"pending","label":"Pending"},
+            "currency": "BDT", "total": 10000, "hold_expires_at": "2026-06-27T12:15:00Z" },
+            "payment": { "ref": "[PLACEHOLDER]", "status": {"value":"pending","label":"Pending"} } } }
 // 409 if inventory insufficient (TicketsUnavailableException)
 ```
-**Lock-and-decrement sequence (DB row lock).** Oversell is prevented with a **pessimistic DB row lock** —
-`SELECT … FOR UPDATE` on each `ticket_type` row — taken *inside* the checkout transaction (see ADR-07):
+**Lock-and-decrement sequence (hybrid lock).** Oversell is prevented with a **hybrid lock** (see ADR-07): a
+short-lived **Redis lock per `ticket_type`** *fronts* an authoritative **DB row lock** (`SELECT … FOR UPDATE`) taken
+*inside* the checkout transaction.
 
 ```
-BEGIN
-  for each line item (ordered by ticket_type_id to avoid deadlocks):
-    SELECT * FROM ticket_types WHERE id = ? FOR UPDATE         -- serialize concurrent buyers of this type
-    available = quantity_total - quantity_sold - SUM(active holds)
+for each line item (ordered by ticket_type_id to avoid deadlocks):
+  acquire Redis lock "lock:ticket_type:{id}"  (short TTL)        -- distributed gate: thins contention before the DB
+  BEGIN
+    SELECT * FROM ticket_types WHERE id = ? FOR UPDATE           -- AUTHORITATIVE serialization of concurrent buyers
+    available = quantity_total - quantity_sold
+              - SUM(holds WHERE status='active' AND expires_at > now())   -- only NON-EXPIRED holds count
     if available < requested:  ROLLBACK → 409 TicketsUnavailable
-  create order (status=pending) + one ticket_hold per item (expires_at = now+15m), unit_price locked here
-COMMIT                                                          -- row locks released on commit
+    create order (status=pending) + one ticket_hold per item (expires_at = now+15m), unit_price locked here
+  COMMIT                                                         -- DB row lock releases on commit
+  release Redis lock
 ```
 
-The lock and the transaction **share one boundary**, so the lock auto-releases on commit/rollback — no orphaned
-locks, no separate lock store to fail. `quantity_sold` is **not** decremented here; the hold is what reserves
-inventory until payment.
+**Why both:** the Redis lock satisfies the brief's **"distributed"** requirement — it serializes contending
+checkouts across multiple core-api workers *before* they hit the database, **cutting `FOR UPDATE` contention** on a
+hot ticket type. But the **DB row lock is authoritative**: it is what actually guarantees no oversell, so correctness
+holds even if Redis is unavailable (we fall back to DB-only locking and just lose the contention optimization — see
+§6). `quantity_sold` is **not** decremented here; the hold is what reserves inventory until payment.
+
+**Expiry is enforced at read time.** Availability counts only holds that are both `active` **and** `expires_at >
+now()`, so a hold **never blocks stock past its 15-minute life** even if cleanup hasn't run yet. The
+`ReleaseExpiredHolds` cron (every 5 min, §5) is just **housekeeping** — it flips stale rows to `released` to keep the
+table tidy and waitlist logic simple — not the thing that frees inventory. Correctness doesn't depend on the cron's
+cadence.
 
 **Idempotent re-checkout.** The client sends an `Idempotency-Key` header. If the same key arrives again (retry,
 double-click), core-api returns the **same** order instead of creating a second one — the key is stored unique on
@@ -172,26 +196,40 @@ passes as `gateway` to payment-service `POST /payments`.
 
 ### 3.3 Process refund — `POST /api/v1/orders/{order}/refund` (attendee request / admin approve)
 ```jsonc
-// Request
-{ "amount": 5000, "reason": "..." }   // amount optional for full refund
-// Response 200
+// Request  — NO amount: the attendee selects WHICH tickets, not how much.
+//   omit "items" = refund the whole order; include items = partial (a subset of tickets)
+{ "items": [ { "order_item_id": "01HF8ZB0A1C2D3E4F5G6H7J8K9", "quantity": 1 } ], "reason": "..." }
+// Response 200  (ids are ULIDs — ADR-19; amount is computed by core-api, not supplied)
 { "success": true, "message": "Refund processed", "errors": null,
-  "data": { "refund": { "id": 5, "amount": 5000, "policy_applied": "50%_24_48h",
-            "status": {"value":"completed"} } } }
+  "data": { "refund": { "id": "01HF8ZD2C3E4F5G6H7J8K9M0N1", "amount": 5000, "policy_applied": "50%_24_48h",
+            "status": {"value":"completed","label":"Completed"} } } }
 ```
 **Policy resolution.** The refund percentage is resolved against the event's `starts_at` **UTC instant**: **>48h →
 100%, 24–48h → 50%, <24h → 0%**. **Hybrid model:** an in-policy refund is **auto-approved and executed**; an
 out-of-policy request (e.g. buyer contests the 0% window) does **not** refund — it opens a `dispute` for an admin to
 mediate, who may then resolve it by issuing a refund (`disputes.refund_id`) or reject it.
 
-**Full vs partial.** `amount` omitted = full refund of the remaining refundable balance; `amount` present = partial.
-Either way the refund is validated against the **ledger** so cumulative refunded can never exceed the original
-charge, and a ticket already `checked_in` is not refundable.
+**The attendee never sends an amount.** The request says *which* tickets to refund (omit `items` = the whole order;
+include `items` = a **partial** refund of that subset), not how much. **core-api derives the amount**:
+`amount = policy% × (selected line totals)`, where `policy%` is resolved from time-to-event (100% >48h, 50% 24–48h,
+0% <24h). This keeps the money math server-side and untamperable — a client can't request an arbitrary refund value.
+The computed amount is validated against the **ledger** so cumulative refunded can never exceed the original charge,
+and a ticket already `checked_in` is not refundable.
 
-**Execution path.** core-api decides the policy/amount, then calls **payment-service `POST /refunds`** with a shared
-secret + `Idempotency-Key` (so a retried refund never double-pays the buyer). On success it writes a signed
-`refund` ledger entry. **Refund-after-payout:** if the revenue was already paid out, the refund also writes a negative
+**Compute vs execute split.** core-api **decides** policy and computes the amount, then calls **payment-service
+`POST /refunds`** (§3.5) with that exact amount + a shared secret + `Idempotency-Key`. The payment-service is a pure
+**executor** — it moves the money for the amount it's given and never computes policy. On success core-api writes a
+signed `refund` ledger entry (and flips the order to `refunded` or `partially_refunded`). **Interaction with
+settlement (ADR-20):** vendor revenue settles only **after the event is `completed`**, so a refund before then simply
+reduces still-unsettled revenue (held as `reserved_refund`) — no clawback needed. **Refund-after-payout** is the rare
+fallback: if the revenue was already settled (a post-event dispute override), the refund also writes a negative
 `clawback` ledger entry that offsets the vendor's next payout (balance may go negative — see [erd.md](./erd.md)).
+
+**Vendor-cancelled event (ADR-23).** A vendor/admin cancellation refunds **every attendee 100%** (policy-overridden),
+funded by **debiting the vendor** (a negative `clawback` ledger entry), and the **platform refunds its own
+commission** too — it earns nothing on an event that never happened, and the sale + reversal net to zero. Because
+settlement waits for event completion, in the common case the vendor hasn't been paid yet, so the debit nets before
+any real money left the platform.
 
 **Two distinct endpoints.** This route is the **attendee's** refund *request* (auto-executes only when in-policy).
 Resolving an out-of-policy **dispute** is a **separate admin endpoint** (e.g. `POST
@@ -202,13 +240,17 @@ surfaces.
 ### 3.4 Calculate payout — `GET /api/v1/vendors/{vendor}/payouts/preview` (vendor/admin) + batch
 ```jsonc
 // Response 200  (amounts in poisha; 500000 poisha = 5,000 BDT threshold)
+// gross counts only orders whose event is COMPLETED (ADR-20); reserved_refund is held against not-yet-settled orders
 { "success": true, "message": "OK", "errors": null,
   "data": { "gross": 1000000, "commission_rate": 0.10, "commission": 100000, "net": 900000,
-            "currency": "BDT", "meets_threshold": true, "threshold": 500000 } }
+            "reserved_refund": 150000, "currency": "BDT", "meets_threshold": true, "threshold": 500000 } }
 ```
 
 **Formula.** `net = gross − commission`, where `gross` = sum of paid, non-refunded order revenue attributable to the
-vendor (from the **ledger**, not a mutable balance), and `commission = round_half_up(gross × commission_rate)`.
+vendor (from the **ledger**, not a mutable balance) **and only for orders whose event is `completed`** (ADR-20) —
+revenue from events that haven't happened yet is excluded and tracked as `reserved_refund` until the event completes,
+so a cancelled/no-show event is never paid out in the first place. `commission = round_half_up(gross ×
+commission_rate)`.
 **Commission rate is snapshotted per order at sale time** (`orders.commission_rate`), so a payout sums each order's
 own historical rate — changing the platform rate later never rewrites past payouts. A per-vendor override on
 `vendors.commission_rate` takes precedence over the platform default *at sale time* (it's what gets snapshotted).
@@ -216,12 +258,15 @@ own historical rate — changing the platform rate later never rewrites past pay
 **Threshold rollover.** If the vendor's eligible `net` is below the **5,000 BDT (500,000 poisha)** minimum, no payout
 is created — the balance simply remains in the ledger and **rolls into the next cycle** until it clears the threshold.
 
-**Daily batch.** `ProcessPayoutBatch` runs on a schedule, computes each eligible vendor's net, and for each calls
-**payment-service `POST /payouts`** with a per-payout `Idempotency-Key` and a shared `batch_id`. **No-double-pay
-guarantee:** the vendor is marked settled **inside the same transaction** that records the payout, and the
-idempotency key means a retried or re-run batch returns the original result instead of paying again — so a crash
-mid-batch is safe to re-run (settled vendors are skipped). See §6 and the [decision log](./technical-decision-log.md)
-(ADR-09).
+**Daily batch.** `ProcessPayoutBatch` runs on a schedule, computes each eligible vendor's net over **orders whose
+event is `completed` only**, and for each calls **payment-service `POST /payouts`** with a per-payout
+`Idempotency-Key` and a shared `batch_id`. Each settled order is recorded in **`payout_items`** (`payout_id`,
+`order_id`, `settled_amount`) so every payout is **traceable to the exact orders it paid for**, and the payout carries
+its `reserved_refund`. **No-double-pay guarantee:** the vendor is marked settled (and `payout_items` written)
+**inside the same transaction** that records the payout, and the idempotency key means a retried or re-run batch
+returns the original result instead of paying again — so a crash mid-batch is safe to re-run (settled vendors are
+skipped). Settling only after event completion means clawbacks are a rare fallback rather than routine. See §6 and the
+[decision log](./technical-decision-log.md) (ADR-09, ADR-20, ADR-23).
 
 ### 3.5 Payment-service internal contracts
 
@@ -232,18 +277,18 @@ service **replays the stored original result** (same status code + body) and per
 ```jsonc
 // POST /payments   (core-api → payment-service: charge for an order)
 // Headers: Authorization: Bearer [PLACEHOLDER]; Idempotency-Key: <per charge attempt>
-{ "order_id": 99, "amount": 10000, "currency": "BDT", "gateway": "stripe_sim",
+{ "order_id": "01HF8ZC1B2D3E4F5G6H7J8K9M0", "amount": 10000, "currency": "BDT", "gateway": "stripe_sim",
   "callback_url": "https://core-api/internal/payments/webhook" }
-// 201 → { "success": true, "data": { "payment": { "ref": "[PLACEHOLDER]", "status": "pending" } } }
+// 201 → { "success": true, "data": { "payment": { "ref": "[PLACEHOLDER]", "status": {"value":"pending","label":"Pending"} } } }
 // The real result (succeeded/failed) is delivered asynchronously via the signed webhook below.
 
-// POST /refunds    (full or partial; validated against the original charge)
+// POST /refunds    (executes the amount core-api computed; validated against the original charge)
 { "payment_ref": "[PLACEHOLDER]", "amount": 5000, "currency": "BDT" }
-// 200 → { "success": true, "data": { "refund": { "ref": "[PLACEHOLDER]", "status": "completed" } } }
+// 200 → { "success": true, "data": { "refund": { "ref": "[PLACEHOLDER]", "status": {"value":"completed","label":"Completed"} } } }
 
 // POST /payouts    (per-vendor settlement from a batch)
-{ "vendor_id": 7, "amount": 900000, "currency": "BDT", "batch_id": "2026-06-26" }
-// 200 → { "success": true, "data": { "payout": { "ref": "[PLACEHOLDER]", "status": "paid" } } }
+{ "vendor_id": "01HF8ZE3D4F5G6H7J8K9M0N1P2", "amount": 900000, "currency": "BDT", "batch_id": "2026-06-26" }
+// 200 → { "success": true, "data": { "payout": { "ref": "[PLACEHOLDER]", "status": {"value":"paid","label":"Paid"} } } }
 ```
 
 **Webhook callback (payment-service → core-api).** Reports the terminal charge/refund/payout result.
@@ -252,19 +297,26 @@ service **replays the stored original result** (same status code + body) and per
   result **idempotently** (keyed on the payment ref), tolerating duplicate and out-of-order deliveries.
 
 ```jsonc
-{ "event": "payment.succeeded", "payment_ref": "[PLACEHOLDER]", "order_id": 99,
-  "status": "succeeded", "amount": 10000, "currency": "BDT", "occurred_at": "2026-06-27T12:03:00Z" }
+{ "event": "payment.succeeded", "payment_ref": "[PLACEHOLDER]", "order_id": "01HF8ZC1B2D3E4F5G6H7J8K9M0",
+  "status": {"value":"succeeded","label":"Succeeded"}, "amount": 10000, "currency": "BDT",
+  "occurred_at": "2026-06-27T12:03:00Z" }
 ```
 
 ## 4. Database design
 Full ERD + relationship explanations in [`erd.md`](./erd.md). Summarise here:
 
 ### Key relationships
+**All primary keys are ULIDs** (`HasUlids`, `foreignUlid` FKs — ADR-19): non-enumerable across tenants and
+time-sortable for index locality.
+
 `users` 1:1 `vendors` / `attendees` (role profile); `vendor` 1:N `events` 1:N `ticket_types`; `attendee` 1:N
 `orders` 1:N `order_items`. **`order` 1:N `payments`** (each charge attempt is its own row, ≤1 `succeeded` — see
 [erd.md](./erd.md) retry-cardinality note) and `payment` 1:N `refunds` (partials). `ticket_type` 1:N `ticket_holds`
-(transient) and 1:N `tickets` (issued on payment). `vendor` 1:N `payouts`; `order` 1:N `disputes`; vendor 1:N
-`kyc_documents`. `ledger_entries` is polymorphic + append-only; `idempotency_keys` guards money calls.
+(transient); **`tickets` hang off `order_items`** (a group bundle line issues N tickets, each with its own
+`valid|checked_in|transferred|refunded` status). `vendor` 1:N `payouts` 1:N **`payout_items`** (linking a payout to
+the exact orders it settled); `order` 1:N `disputes`; vendor 1:N `kyc_documents`. `events.capacity` is a hard ceiling
+(`SUM(ticket_types.quantity_total) ≤ capacity`), and an order can be `partially_refunded`. `ledger_entries` is
+polymorphic + append-only; `idempotency_keys` guards money calls.
 
 ### Normalization / denormalization decisions
 Normalized to ~3NF; four **deliberate** denormalizations, each for a hot path or an immutability guarantee:
@@ -294,9 +346,10 @@ idempotency records in its own DB. Financial history is never overwritten.
 Three tiers (detailed in [erd.md](./erd.md)): **soft-delete** (`deleted_at`) reference data that historical orders
 still point at — `users`, `vendors`, `attendees`, `events`, `ticket_types`, `kyc_documents` — so it stays resolvable
 for audit; **never delete** the financial/issued records — `orders`, `order_items`, `payments`, `refunds`, `payouts`,
-`ledger_entries`, `tickets`, `disputes`, `event_reminders` — lifecycle is a `status` column, regulatory retention
-forbids deletion; **transient/config** — `ticket_holds` resolve to released/converted, `idempotency_keys` are pruned
-after their window, `settings`/`sales_reports` are updated/upserted in place.
+`payout_items`, `ledger_entries`, `tickets`, `disputes`, `event_reminders` — lifecycle is a `status` column (e.g.
+`orders.status` can be `partially_refunded`), regulatory retention forbids deletion; **transient/config** —
+`ticket_holds` resolve to released/converted, `idempotency_keys` are pruned after their window, `settings`/
+`sales_reports` are updated/upserted in place.
 
 ## 5. Background job design
 For each: trigger, what it does, failure behaviour, duplicate-processing prevention.
@@ -308,22 +361,42 @@ For each: trigger, what it does, failure behaviour, duplicate-processing prevent
 | ReleaseExpiredHolds | every 5 min | idempotent re-scan | release only `active` holds past `expires_at`, in a txn |
 | GenerateSalesReport | daily | regenerate is idempotent | upsert per `(report_date, vendor_id)` (+ app dedupe for the NULL platform-wide row) |
 | ProcessWaitlist | on ticket release | retry | offer/lock per waitlist position; 30-min `claim_expires_at` |
+| TransitionEventStatus | every few min | idempotent re-scan | derive `published→ongoing→completed` from `starts_at`/`ends_at`; only advance from the expected current status |
 
 **Mechanisms.**
-- **ProcessPayoutBatch (daily).** Computes each eligible vendor's net from the ledger; for vendors clearing the
+- **ProcessPayoutBatch (daily).** Computes each eligible vendor's net from the ledger **over orders whose event is
+  `completed` only (ADR-20)** — and holds back not-yet-settled revenue as `reserved_refund`. For vendors clearing the
   5,000 BDT threshold, calls payment-service `POST /payouts` with a per-payout idempotency key and a shared
-  `batch_id`. Marking the vendor settled and recording the payout happen in the **same transaction**, so a mid-batch
-  crash is safe to re-run — settled vendors are skipped and the idempotency key blocks any double-pay.
+  `batch_id`, writing a `payout_items` row per settled order. Marking the vendor settled, writing `payout_items`, and
+  recording the payout happen in the **same transaction**, so a mid-batch crash is safe to re-run — settled vendors
+  are skipped and the idempotency key blocks any double-pay. Settling only after event completion keeps clawbacks a
+  rare fallback (and a cancelled event is never paid out — ADR-23).
+- **TransitionEventStatus (every few min).** Drives the event lifecycle off the clock: an event with
+  `status = published` whose `starts_at` has passed becomes `ongoing`; one whose `ends_at` has passed becomes
+  `completed` (which is what makes its revenue settle-eligible, ADR-20). `cancelled` is **never** automatic — it's a
+  manual vendor/admin action. Idempotent: the command only advances an event from its expected current status (a
+  re-scan re-selecting an already-`completed` event does nothing), so repeated runs converge rather than thrash.
+- **Event cancellation (manual, event-driven — not cron).** A vendor/admin cancellation enqueues a **100% refund for
+  every attendee** (policy-overridden), each **debiting the vendor** via a negative `clawback` ledger entry with the
+  **platform also refunding its commission** (ADR-23), plus cancellation notifications. Mass refunds run as queued
+  jobs (idempotent per order) so a large event doesn't block the request; the ledger stays balanced as sale + full
+  reversal net to zero.
 - **SendEventReminders (hourly).** Finds events whose `starts_at` enters the 24h (or 1h) window, and for each
   inserts an `event_reminders(event_id, type)` row **if absent**, then enqueues per-holder notification jobs. The
-  unique `(event_id, type)` row makes the dispatch idempotent — a re-run never double-sends. Dedupe is per
-  event-window, not per recipient (a deliberate simplification — see [erd.md](./erd.md)).
+  unique `(event_id, type)` row makes the dispatch idempotent — a re-run never double-sends. **Hourly granularity**
+  means a reminder fires within **±1 hour** of the exact 24h-before mark; that imprecision is fine for a courtesy
+  reminder, and the `event_reminders` row guarantees it's sent **once only**. Dedupe is per event-window, not per
+  recipient (a deliberate simplification — see [erd.md](./erd.md)).
 - **ReleaseExpiredHolds (every 5 min).** The inventory safety net. In a transaction, flips `active` holds with
   `expires_at < now` to `released`, returning their count to availability. Idempotent: only `active` holds are
   touched, so re-scanning does nothing once released. This is what unblocks inventory if a payment never completes.
-- **GenerateSalesReport (daily).** Aggregates the previous day's ledger into `sales_reports`, upserting on
-  `(report_date, vendor_id)`. Because MySQL treats `NULL` as distinct, the platform-wide (`vendor_id IS NULL`) row is
-  deduped at the app layer via `updateOrCreate` (see [erd.md](./erd.md)). Purely derived — recomputable from the ledger.
+- **GenerateSalesReport (daily).** Aggregates **ledger entries by date** into `sales_reports`, upserting on
+  `(report_date, vendor_id)`. Because each report is an aggregate of that day's ledger rows, **a later refund reduces
+  the net on its *own* date and never rewrites a past day's report** — history is immutable, corrections land on the
+  day they happen (consistent with the append-only ledger). A period total is just the **sum of the ledger over the
+  range**, which therefore reconciles exactly with the per-day reports. Because MySQL treats `NULL` as distinct, the
+  platform-wide (`vendor_id IS NULL`) row is deduped at the app layer via `updateOrCreate` (see [erd.md](./erd.md)).
+  Purely derived — recomputable from the ledger.
 - **ProcessWaitlist (on ticket release).** When inventory frees up, offers it to the next `waiting` entry for that
   ticket type (by `position`), stamping `offered_at` and `claim_expires_at = +30 min`. A sweep expires unclaimed
   offers and rolls to the next position. Nice-to-have; first to be cut under time pressure.
@@ -354,12 +427,14 @@ are never corrupted, only delayed.**
 - **Payout batch crash mid-run.** Each vendor is marked settled **inside the same transaction** that records its
   payout, and each payout call carries an idempotency key + `batch_id`. Re-running the batch after a crash skips
   already-settled vendors and the idempotency key blocks any duplicate gateway payout — **no double-pay**.
-- **Redis unavailable.** A direct benefit of choosing a **DB row lock** over a Redis lock (ADR-07): oversell
-  prevention does **not** depend on Redis at all — the `SELECT … FOR UPDATE` lives in the primary DB transaction, and
-  **idempotency is DB-backed too** (the `idempotency_keys` table in core-api + the payment-service's own DB, not a
-  Redis cache). So the two money-correctness guarantees — the inventory lock and idempotent money calls — survive a
-  Redis outage intact. What Redis carries is the **queue**, and the payment-charge dispatch is itself a queued job, so
-  with Redis down **all queued work pauses — both the charge dispatch and notifications**. Nothing corrupts: a
-  checkout still commits its `pending` order + holds in the DB, the charge job simply waits, and if Redis stays down
-  past 15 minutes the **hold-expiry returns the inventory**. When Redis recovers, queued work resumes and idempotency
-  keys ensure the now-delayed charges run exactly once.
+- **Redis unavailable.** Oversell prevention still holds. In the hybrid lock (ADR-07) the Redis lock is only the
+  contention-cutting *front*; the **authoritative guard is the DB row lock** (`SELECT … FOR UPDATE`) inside the
+  transaction — so with Redis down we **fall back to DB-only locking** and lose the optimization, not the guarantee.
+  **Idempotency is DB-backed too** (the `idempotency_keys` table in core-api + the payment-service's own DB, not a
+  Redis cache), so both money-correctness guarantees survive a Redis outage. What Redis also carries is the **queue**,
+  and the payment-charge dispatch is itself a queued job, so with Redis down **all queued work pauses — both the
+  charge dispatch and notifications**, and checkouts serialize a little harder on the DB row lock without the Redis
+  front. Nothing corrupts: a checkout still commits its `pending` order + holds in the DB, the charge job simply
+  waits, and if Redis stays down past 15 minutes the **hold-expiry returns the inventory** (same safety net as
+  before). When Redis recovers, queued work resumes and idempotency keys ensure the now-delayed charges run exactly
+  once.

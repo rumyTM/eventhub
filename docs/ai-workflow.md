@@ -134,7 +134,7 @@ Bring it back for a rubric review **before committing**:
 /day-plan 2
 ```
 ```
-Let's do Day 2 from PLAN.md. Run /scaffold-service core-api then /scaffold-service payment-service (copy the canonical stubs, register AssignLogTraceId in bootstrap/app.php). Bring up docker-compose with mysql + redis + both Laravel services and confirm health. Then create migrations for every entity in docs/erd.md, the enums (/add-enum ...), Sanctum auth with a role enum + EnsureRole middleware, and CRUD for Event and TicketType with ownership + lifecycle rules. Run /format-and-test and /update-worklog.
+Let's do Day 2 from PLAN.md. Run /scaffold-service core-api then /scaffold-service payment-service (copy the canonical stubs, register AssignLogTraceId in bootstrap/app.php, and install Laravel Boost dev-only via composer require laravel/boost --dev + php artisan boost:install — ADR-22). Bring up docker-compose with mysql + redis + both Laravel services and confirm health. Then create migrations for every entity in docs/erd.md, the enums (/add-enum ...), Sanctum auth with a role enum + EnsureRole middleware, and CRUD for Event and TicketType with ownership + lifecycle rules. Run /format-and-test and /update-worklog.
 ```
 
 ## DAY 3 — Orders, locking, payments, financial tests (highest risk)

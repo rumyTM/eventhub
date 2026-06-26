@@ -24,15 +24,19 @@ You do not write features; you report findings with exact `file:line` references
 - Webhook handlers are idempotent (a re-delivered webhook doesn't double-apply).
 
 **Concurrency & oversell**
-- Ticket inventory mutation is protected by a distributed lock (Redis lock or `lockForUpdate`/`SELECT ... FOR UPDATE`)
+- Ticket inventory mutation is protected by the **hybrid lock (ADR-07): a Redis lock per ticket_type AND an authoritative DB row lock** (`lockForUpdate`/`SELECT ... FOR UPDATE`) — the DB lock must be present (Redis alone is insufficient)
   around the check-and-decrement. No read-then-write race.
-- available = total - sold - active_holds is computed and re-checked **inside** the lock/transaction.
+- available = total - sold - active_holds is computed and re-checked **inside** the lock/transaction, and
+  `active_holds` counts only **non-expired** holds (`status='active' AND expires_at > now()`) — expiry is enforced
+  at read time, not by the cron (a hold must never block stock past its 15-min `expires_at`).
 - Hold expiry returns inventory exactly once (no double-return).
 
 **Double-pay safety (payout batch)**
 - The daily payout batch marks each vendor processed **inside** the same transaction that creates the payout, so a
   mid-batch crash cannot re-pay an already-paid vendor on retry.
 - Minimum payout threshold enforced; below-threshold amounts roll over rather than create a tiny/duplicate payout.
+- An order's revenue is **not settled before its event is `completed`** (ADR-20); a vendor-cancelled event refunds
+  attendees 100%, debits the vendor (negative `clawback`), and refunds the platform commission (ADR-23).
 - Commission math is correct and uses decimal/integer money, never float.
 
 **Audit trail**

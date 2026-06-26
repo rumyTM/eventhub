@@ -42,7 +42,7 @@ feature breadth. Prioritise ruthlessly.
 - Done when: a reviewer can understand the whole system from `docs/` alone. → `/update-worklog`.
 
 ## Day 2 — Scaffold + schema + core CRUD  ▢
-- [ ] `/scaffold-service core-api`, `/scaffold-service payment-service` (Laravel base, ApiResponse, exception shaping, repo provider).
+- [ ] `/scaffold-service core-api`, `/scaffold-service payment-service` (Laravel base, ApiResponse, exception shaping, repo provider, Laravel Boost dev-only — ADR-22).
 - [ ] `docker-compose.yml` boots mysql + redis + both Laravel services; health checks pass.
 - [ ] Migrations for all entities (see `docs/erd.md`); enums (`/add-enum`).
 - [ ] Auth: Sanctum, `role` enum, `EnsureRole` middleware, registration/login.

@@ -80,7 +80,9 @@ cd frontend && npm install && npm run dev                          # :3000
 
 ## AI-augmented workflow
 This repo is structured for both human and AI developers. Each service has its own `CLAUDE.md` (productive in
-~30 min), plus scoped agent skills and slash commands in `.claude/`. See [`CLAUDE.md`](./CLAUDE.md) §7 and the
+~30 min), plus scoped agent skills and slash commands in `.claude/`. The two Laravel services also use
+[Laravel Boost](https://github.com/laravel/boost) (dev-only) to give AI tools version-accurate docs and live
+app/DB introspection. See [`CLAUDE.md`](./CLAUDE.md) §7 and the
 [AI workflow playbook](./docs/ai-workflow.md) for how the build is driven and how a new developer contributes.
 
 ## Testing
@@ -89,6 +91,8 @@ payment-service (idempotency, gateway outcomes). Run `php artisan test` per Lara
 Node service. See each service's `CLAUDE.md`.
 
 ## Security
-Payment data handling follows PCI-DSS-aware practices: no card PAN/CVV/token/secret in code, logs, tests, or
+The design deliberately stays **out of PCI-DSS scope** — no raw card data (PAN/CVV) is ever stored or transmitted
+(the simulated gateway holds it; we keep only tokens/refs). Separately, as general security + data-privacy: no
+secrets/tokens/OTP or KYC/PII in code, logs, tests, or
 responses (`[PLACEHOLDER]` everywhere); validated input only; payment/notification endpoints are never public;
 financial history is append-only. See [`CLAUDE.md`](./CLAUDE.md) §6.

@@ -58,8 +58,10 @@ you find violations and report them with exact file:line references and the mini
 - Unversioned route (missing `v1`); hard-coded throttle numbers instead of a named limiter.
 - A limiter without a `->response()` returning the helper with a specific message + `retry_after` in `data`.
 
-**Security (PCI-DSS)**
-- Any PAN/CVV/token/OTP/secret/credential in code, logs, tests, or responses (must be `[PLACEHOLDER]`, redacted).
+**Security & data protection**
+- Raw card data (PAN/CVV) anywhere — must never appear (the app stays out of PCI-DSS scope; only the simulated gateway
+  handles cards). Any token/OTP/secret/credential or KYC/PII (NID, TIN, bank account) in code, logs, tests, or
+  responses (must be `[PLACEHOLDER]`, redacted) — general security + data-privacy, not PCI.
 - Sensitive exception detail (SQL, stack trace, class name) leaking to the client.
 - Plaintext OTP/secret logged outside a guarded local-only path.
 

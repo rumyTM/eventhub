@@ -18,6 +18,12 @@ Scaffold the **$ARGUMENTS** service so it's ready for feature work, following it
      (`$middleware->api(prepend: [\\App\\Http\\Middleware\\AssignLogTraceId::class])`) and render exceptions
      through `ApiResponse`. Set up `RepositoryServiceProvider`, the `app/` layout from the service `CLAUDE.md`,
      `/api/v1` routes, named rate limiters, and a `composer format` (Pint) script.
+   - **Install Laravel Boost (dev-only AI tooling, ADR-22):** `composer require laravel/boost --dev` then
+     `php artisan boost:install` (confirm options at install time). Boost gives the AI agent version-accurate
+     `search-docs`, live DB-schema/app-info introspection, and error/log/Tinker access for this service. Its
+     auto-generated guidelines are **advisory** — where they differ from this service's `CLAUDE.md` (strict layering,
+     hybrid lock, ULID, ledger, the response envelope), the project `CLAUDE.md` wins. Boost is dev-only and never
+     ships to production. (core-api & payment-service only — not the Node or Next services.)
    - **Trace propagation:** every outbound inter-service HTTP call attaches `LogHelper::traceHeaders()`
      (`->withHeaders(LogHelper::traceHeaders())`); core-api also includes `trace_id` (from `LogHelper::traceId()`) in
      every notification job payload so the Node service can log under the same id. This keeps ONE correlation id across

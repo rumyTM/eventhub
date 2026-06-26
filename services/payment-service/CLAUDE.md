@@ -8,6 +8,8 @@
 > `app/Support/ApiResponse.php` and `app/Helpers/LogHelper.php` are the **canonical stubs** copied verbatim from
 > `.claude/stubs/laravel/` during `/scaffold-service` — do not fork them. Forward the incoming `Log-Trace-ID` header
 > on every webhook callback to core-api so a charge can be traced end-to-end across both services.
+> **AI tooling:** Laravel Boost is installed here (dev-only) — use its `search-docs`/schema/error/Tinker MCP tools.
+> Boost's generic guidelines are advisory; this `CLAUDE.md` (and core-api §A–E) win where they differ. See ADR-22.
 
 ---
 

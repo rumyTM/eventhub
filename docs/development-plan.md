@@ -14,19 +14,21 @@ build, not bolted on at the end.
 - **Day 1 — Think before building.** Requirements, assumptions, edge cases, architecture, ERD, and the decision log.
   This is deliberately a full day with no code: the expensive mistakes on a money system are schema and
   contract mistakes, and they're far cheaper to fix in a doc than after orders reference the wrong columns. Locking
-  these (integer poisha, DB row lock, append-only ledger, idempotency everywhere) up front means every later day
+  these (integer poisha, hybrid lock = Redis lock + authoritative DB row lock, append-only ledger, idempotency
+  everywhere) up front means every later day
   builds on settled decisions.
 - **Day 2 — Foundation that everything stands on.** Scaffold the services, wire docker-compose, write the migrations
   from the ERD, and build auth/roles/ownership + the core CRUD (events, ticket types, vendor/KYC). Nothing
   money-related works without auth and the domain tables, so this is the unblocking layer.
-- **Day 3 — The hard core (highest risk/value).** Checkout with holds and the DB row lock, the payment-service with
+- **Day 3 — The hard core (highest risk/value).** Checkout with holds and the hybrid lock (Redis lock fronting an
+  authoritative DB row lock, ADR-07), the payment-service with
   ≥2 gateways + idempotency, the signed webhook flipping orders to paid, refund/payout execution, the
   `ReleaseExpiredHolds` safety net — and the **required financial unit tests** (oversell, idempotent checkout, payout
   calc, inventory) written *with* the code, not after. If the week were cut short, this is the day that has to be
   solid.
 - **Day 4 — Resilience and surface.** notification-service (queue/retry/backoff/DLQ), the remaining cron
-  (payout batch, reminders, sales report, waitlist), and a functional frontend across the three roles. These depend
-  on the Day-3 contracts being stable, so they come after.
+  (payout batch, reminders, sales report, waitlist, event-status transition), and a functional frontend across the
+  three roles. These depend on the Day-3 contracts being stable, so they come after.
 - **Day 5 — Make it provable and demonstrable.** Broaden tests, write the API docs (Postman/OpenAPI) so a reviewer
   can exercise it without reading source, seed realistic demo data, final-pass all docs, and record the walkthrough
   video.
@@ -39,7 +41,7 @@ updated each session) rather than being a Day-5 scramble — which is also what 
 **The critical path** — the chain where each link genuinely blocks the next, and any slip slips the whole project:
 
 ```
-auth/roles → events + ticket types → checkout/holds + DB row lock → payment integration (charge + idempotency + webhook) → refund/payout execution + ledger
+auth/roles → events + ticket types → checkout/holds + hybrid lock (Redis + authoritative DB row lock) → payment integration (charge + idempotency + webhook) → refund/payout execution + ledger
 ```
 
 Each step is a hard dependency of the next: you can't issue tickets without a paid order, can't have a paid order
@@ -53,9 +55,10 @@ the required tests go.
   buyers just don't get an email.
 - **frontend** — depends on the API contracts (already specified in `system-architecture.md` §3), not the
   implementations. It can build against those contracts and a mock server, and is the safest thing to compress.
-- **Most cron except `ReleaseExpiredHolds`** — the payout batch, reminders, sales report, and waitlist are
-  "should/nice-to-have." `ReleaseExpiredHolds` is the exception: it's *on* the critical path because it's the
-  inventory safety net that makes the hold design correct under failure.
+- **Most cron except `ReleaseExpiredHolds`** — the payout batch, reminders, sales report, waitlist, and the
+  event-status transition command (`published→ongoing→completed` off `starts_at`/`ends_at`) are "should/nice-to-have."
+  `ReleaseExpiredHolds` is the exception: it's *on* the critical path because it's the inventory safety net that makes
+  the hold design correct under failure.
 
 So the rule is: never let a non-critical stream (notifications, UI polish, reports) consume time the critical path
 needs, and define the contracts early enough that the non-critical streams can proceed without waiting on the
@@ -88,9 +91,9 @@ response envelope + the inter-service API/job contracts already drafted in
   the root + per-service `CLAUDE.md` files and the relevant contract sections, so everyone starts day 3 already
   oriented.
 - **Days 3–5 (B, C, D, E in parallel):**
-  - **B (core domain)** builds events/ticket types, then checkout/holds + the DB row lock and inventory — the
-    critical path. Calls C behind a thin client interface it can stub until C is ready, and owns
-    `ReleaseExpiredHolds` (the one piece of cron that is on the critical path).
+  - **B (core domain)** builds events/ticket types, then checkout/holds + the hybrid lock (Redis lock + authoritative
+    DB row lock, ADR-07) and inventory — the critical path. Calls C behind a thin client interface it can stub until C
+    is ready, and owns `ReleaseExpiredHolds` (the one piece of cron that is on the critical path).
   - **C (payments)** builds the payment-service, gateways, idempotency, and the signed webhook against the frozen
     contract; can develop and test fully against its own contract without B being finished.
   - **D (notifications)** builds the queue/retry/backoff/DLQ machinery (ADR-18) and consumes the agreed job payload

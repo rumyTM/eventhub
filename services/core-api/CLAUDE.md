@@ -5,6 +5,11 @@
 > jobs to Redis. The **engineering standards below are mandatory** — they are the source of truth for how code is
 > structured here. Root context lives in [`../../CLAUDE.md`](../../CLAUDE.md).
 
+> **AI tooling:** this service has **Laravel Boost** installed (dev-only). Use its MCP tools when working here —
+> `search-docs` for version-accurate Laravel/package docs (don't guess APIs), plus DB-schema, app-info, last-error,
+> log, and Tinker introspection. Boost's auto-generated guidelines are *advisory*; **this `CLAUDE.md` is authoritative**
+> wherever they differ (layering, hybrid lock, ULID, ledger, response envelope). See ADR-22.
+
 ---
 
 ## A. Architecture & layering (strict)
@@ -94,8 +99,10 @@ Follow these exactly (condensed — the `laravel-api-endpoint` skill has full te
   exceptions for invalid states.
 - **Enum:** string-backed, PascalCase cases / snake_case values, required `label()` via `match`, domain predicates as
   `match` methods (`allowsReapplication()`, `isTerminal()`). Cast on model via `casts()`; store as `string` column.
-- **Model:** `casts()` method (not `$casts`); money as `decimal:2` or integer minor units, never float; relationship
-  return types; reused `where` chains → scopes; `SoftDeletes` for auditable/recoverable records.
+- **Model:** `casts()` method (not `$casts`); money as integer minor units (poisha) or `decimal:2`, never float;
+  relationship return types; reused `where` chains → scopes; `SoftDeletes` for auditable/recoverable records.
+  **Primary keys are ULIDs** — use the `HasUlids` trait on every model, `$table->ulid('id')->primary()` in migrations,
+  and `foreignUlid('...')` for FKs (non-enumerable across tenants, time-sortable; see ADR-19).
 
 ## E. Routes & rate limiting
 All under `/api/v1`, grouped by role with `auth:sanctum` + role middleware. RESTful names
@@ -108,8 +115,10 @@ returning `ApiResponse::error()` + `retry_after` in `data`. Never inline limits.
 ## F. EventHub domain model (the important part)
 
 ### Roles & auth
-Sanctum token auth. Single `users` table with a `role` enum (`admin`, `vendor`, `attendee`); vendor/attendee detail
-in `vendors` / `attendees` profile tables (1:1 with user). `EnsureRole` middleware guards route groups. **Ownership:**
+Sanctum token auth. Single `users` table with a `role` enum (`admin`, `vendor`, `attendee`) — **a backed enum, not
+spatie/laravel-permission** (three fixed roles, one per user, no dynamic/granular permissions; see ADR-21). Do **not**
+add spatie or a roles/permissions table. Vendor/attendee detail lives in `vendors` / `attendees` profile tables (1:1
+with user). `EnsureRole` middleware guards route groups. **Ownership:**
 a vendor may only read/write its own events, orders, payouts — enforce via policy/middleware that checks
 `vendor_id === $request->user()->vendor->id`. Attendees may not hit admin or vendor-management routes.
 
@@ -136,10 +145,17 @@ Pricing/availability resolution is an **Action** (`ResolveTicketPrice`) so it's 
 
 ### Order processing — holds, locking, expiry (CRITICAL — unit tests required)
 1. **Checkout start:** create an `order` (`status=pending`) + `ticket_holds` with `expires_at = now()+15min`.
-2. **Oversell prevention:** acquire a **distributed lock per ticket_type** (Redis lock or
-   `SELECT ... FOR UPDATE` on the ticket_type row) before checking/decrementing available inventory.
-   Available = `quantity_total - quantity_sold - active_holds`. Reject with `TicketsUnavailableException` (409) if
-   insufficient. This is the single most-tested path — concurrent purchase attempts must never oversell.
+2. **Oversell prevention (hybrid lock — ADR-07):** acquire a short-lived **Redis lock per ticket_type** (cuts
+   contention; satisfies the "distributed" requirement) **and**, inside the checkout transaction, an authoritative
+   **DB row lock** (`SELECT ... FOR UPDATE` on the ticket_type row) before checking/decrementing available inventory.
+   The DB row lock is the correctness guard — oversell is impossible even if Redis is down (fall back to DB-only);
+   Redis is an optimization, never the source of truth.
+   Available = `quantity_total - quantity_sold - active_holds`, where **active_holds counts only non-expired holds**
+   (`status='active' AND expires_at > now()`). Expiry is enforced at **read time**, not by the cron — so inventory
+   frees exactly at the 15-min mark for new buyers regardless of when `ReleaseExpiredHolds` next runs (the cron is
+   housekeeping/waitlist-trigger, never the source of truth for expiry; this avoids a hold blocking stock for up to
+   ~20 min). Reject with `TicketsUnavailableException` (409) if insufficient. This is the single most-tested path —
+   concurrent purchase attempts must never oversell.
 3. **Payment:** core-api calls payment-service (idempotency key = order's key). Returns `pending`; the real result
    arrives via webhook.
 4. **Webhook success:** mark order `paid`, convert holds → issued `tickets` (with QR), increment `quantity_sold`,
@@ -159,11 +175,19 @@ created/queued and rolls into the next cycle. Payout flow: vendor requests (or d
 → core-api queues a payout batch to payment-service → payment-service executes & reports back → mark `paid`, write
 `ledger_entry`, notify vendor. **Never double-pay:** payouts carry an idempotency key + batch_id; the batch job marks
 each vendor processed transactionally so a mid-batch crash doesn't re-pay completed vendors.
+**Settlement timing (ADR-20):** an order's revenue is settled **only after its event is marked `completed`** — never
+before — so a cancelled or no-show event never produces a paid-then-clawed-back vendor. Payouts carry a
+`reserved_refund` amount and link the exact orders settled via `payout_items`.
 
 ### Refunds (policy lives here; execution in payment-service)
-Time-based policy vs event `starts_at`: **>48h before → 100%**, **24–48h → 50%**, **<24h → 0%**. Full or partial.
-A refund request opens a `dispute` (attendee-initiated) that an admin mediates, or is auto-approved per policy —
-decide and document in the decision log. Refund execution calls payment-service; result writes a `ledger_entry`.
+Time-based policy vs event `starts_at`: **>48h before → 100%**, **24–48h → 50%**, **<24h → 0%**. A refund is requested
+**against an order** (optionally specific items/quantity) — the attendee **never specifies an amount**; the amount is
+**auto-derived** = policy% × selected line totals. "Partial" means refunding a **subset of tickets**, not an arbitrary
+sum. In-policy → **auto-approved + executed**; out-of-policy contest → opens a `dispute` an admin mediates (ADR-11).
+Refund execution calls payment-service; result writes a `ledger_entry`.
+**Event cancellation (vendor/admin):** all attendees refunded **100%** (policy-overridden); the refund is **funded by
+debiting the vendor** (negative `clawback` ledger entry), and the **platform also refunds its commission** — it earns
+nothing on a cancelled event (ADR-23).
 
 ### Admin
 Platform analytics (total sales, active events, vendor count, GMV), vendor approval/rejection, dispute/refund queue.
@@ -199,10 +223,13 @@ Pest (project default). `RefreshDatabase`. **Required unit/feature coverage:**
 Per endpoint: happy path + 422 + 401 + 403 (ownership) + 429 (where limited). Factories/states; `Http::fake()` for
 payment-service; `Queue::fake()` for notification jobs. Assert the envelope (`assertJsonPath('success', true)`).
 
-## J. Security (PCI-DSS aware)
-`$request->validated()` only. No PAN/CVV/token/OTP/secret/credential in code, logs, tests, responses — use
-`[PLACEHOLDER]`. `LogHelper` redacts sensitive params. Sensitive docs via short-lived signed URLs. Flag any column
-storing more than necessary; consider Bangladesh Bank / data-privacy implications for stored financial data.
+## J. Security & data protection (PII / Bangladesh Bank aware)
+core-api handles **no card data** (that's the payment-service's simulated concern), so it is **out of PCI-DSS scope** —
+PCI governs cardholder data we never touch. What core-api *does* hold is KYC/PII and money records, so: validate every
+input (`$request->validated()` only); never put a token, OTP, secret, credential, or KYC/PII (NID, TIN, bank account)
+in code, logs, tests, or responses — use `[PLACEHOLDER]`; `LogHelper` redacts sensitive params; serve sensitive docs
+via short-lived signed URLs. Flag any column storing more than necessary; consider Bangladesh Bank / data-privacy
+obligations for stored customer/vendor data.
 
 ## K. Definition of done
 Layering respected · required tests pass · `composer format` (Pint) clean · no secrets · `WORKLOG.md` updated.
