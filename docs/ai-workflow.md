@@ -19,7 +19,9 @@ thinking."* So every document starts from **your** answers to a few questions, t
 
 ### The loop for every unit of work
 1. **Decide** — answer the thinking prompts (docs) or state the intent (code) in your own words.
-2. **Draft** — give Claude Code the prompt; it produces the doc/code following the `CLAUDE.md` standards.
+2. **Draft** — give Claude Code the prompt. A good prompt carries two things: your **concrete decisions/deltas**
+   (don't say "adjust as needed" — list the actual columns/rules you want) and the **conventions to follow** (e.g.
+   Laravel naming). The more specific the inputs, the less generic the output.
 3. **Revise** — edit so it reflects your real decisions and voice; remove anything you can't defend.
 4. **Review** — for planning docs, get a rubric review before committing; for code, run `/format-and-test` and the
    relevant reviewer subagent.
@@ -84,10 +86,17 @@ Cover user stories for all three roles, document each assumption with its ration
 ```
 
 ### 1b. ERD
-**Decide first:** any tables/columns to add or change versus the seeded ERD, given your assumptions above (e.g. a
-`currency` column placement, a `reminded_at` flag, waitlist granularity).
+**Decide first:** the concrete schema deltas implied by your requirement-analysis decisions — list them explicitly,
+don't say "adjust as needed". The ERD becomes your migrations on Day 2, so name things the way the migrations will.
 ```
-Now refine docs/erd.md. The seeded Mermaid ERD reflects the architecture; adjust it to match the assumptions we just locked in requirement-analysis.md (<note any changes>). Then fill the relationship notes, normalization/denormalization rationale, indexing strategy (name each index and the query it serves), the financial audit-trail approach, and the soft-delete vs hard-delete policy. Stop when done.
+Now refine docs/erd.md. The seeded Mermaid ERD reflects the architecture; adjust it to match the assumptions locked in requirement-analysis.md:
+- Add a commission_rate snapshot column on orders (rate captured at sale time; payouts compute from it, not the live platform rate).
+- Ensure order_items captures the unit_price locked at hold creation (price quoted = price charged).
+- Group bundles are NOT a separate table/SKU — keep group_size + group_discount on ticket_types (a discount over N underlying units); inventory decrements by the N units.
+- Confirm ledger_entries can represent a negative (clawback) entry so a refund-after-payout offsets the vendor's next payout and the balance can go negative.
+- Vendor balance is derived from ledger_entries (sales − commission − payouts ± clawbacks), not a stored mutable column.
+Follow Laravel/Eloquent naming throughout: snake_case plural tables, {singular}_id foreign keys, alphabetical-singular pivot names, decimal/integer money columns (never float), deleted_at for soft-deleted tables.
+Then fill the relationship notes, normalization/denormalization rationale, indexing strategy (name each index and the query it serves), the financial audit-trail approach, and the soft-delete vs hard-delete policy. Stop when done.
 ```
 
 ### 1c. System Architecture
