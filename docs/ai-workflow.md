@@ -150,7 +150,7 @@ Let's do Day 3 from PLAN.md. Build the checkout flow: create order + 15-min hold
 /day-plan 4
 ```
 ```
-Let's do Day 4 from PLAN.md. Run /scaffold-service notification-service: BullMQ queues, the email (simulated) and vendor-webhook jobs, exponential backoff (1/4/16/64s, max 5), dead-letter, delivery tracking, and reading trace_id from the payload. Wire core-api's NotificationPublisherContract to publish jobs (include trace_id). Build the remaining cron jobs (ProcessPayoutBatch with no-double-pay, SendEventReminders, GenerateSalesReport, ProcessWaitlist). Then /scaffold-service frontend and build the vendor dashboard, attendee pages + checkout with a hold countdown, and the admin panel. /format-and-test, /update-worklog.
+Let's do Day 4 from PLAN.md. Run /scaffold-service notification-service: BullMQ queues, the email (simulated) and vendor-webhook jobs, exponential backoff (1/4/16/64/256s, max 5 retries = 6 total attempts), dead-letter, delivery tracking, and reading trace_id from the payload. Wire core-api's NotificationPublisherContract to publish jobs (include trace_id). Build the remaining cron jobs (ProcessPayoutBatch with no-double-pay, SendEventReminders, GenerateSalesReport, ProcessWaitlist). Then /scaffold-service frontend and build the vendor dashboard, attendee pages + checkout with a hold countdown, and the admin panel. /format-and-test, /update-worklog.
 ```
 
 ## DAY 5 — Tests, docs, seed data, video

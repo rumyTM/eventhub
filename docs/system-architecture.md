@@ -67,7 +67,7 @@ distributed transaction across an `orders-service` and an `inventory-service` wo
 | core-api → payment-service | REST | Shared secret + `Idempotency-Key` | Retry w/ backoff in a queued job; order stays `pending`; idempotent |
 | payment-service → core-api | REST webhook | Shared secret + HMAC signature | Result persisted first; delivery retried; webhook handler idempotent |
 | core-api → notification-service | Redis queue | Trusted network + queue name | Durable jobs; backlog never blocks checkout |
-| notification-service → vendor | REST webhook | HMAC signature | Exponential backoff, max 5, dead-letter |
+| notification-service → vendor | REST webhook | HMAC signature | Exponential backoff 1/4/16/64/256s, max 5 retries (6 total attempts), then dead-letter |
 
 ## 2. Authentication & authorization strategy
 
@@ -349,7 +349,8 @@ are never corrupted, only delayed.**
   [requirement-analysis.md](./requirement-analysis.md) §5).
 - **Notification queue backed up.** Notifications are **never on the checkout path** — they're enqueued to Redis and
   consumed by notification-service. A backlog or a flaky vendor endpoint degrades *delivery latency* only; purchasing
-  is unaffected. Failed deliveries retry with backoff and land in a **DLQ** after the max attempts for inspection.
+  is unaffected. Failed deliveries retry on exponential backoff (1/4/16/64/256s, max 5 retries = 6 total attempts) and
+  land in a **DLQ** on exhaustion for inspection/replay (see ADR-18).
 - **Payout batch crash mid-run.** Each vendor is marked settled **inside the same transaction** that records its
   payout, and each payout call carries an idempotency key + `batch_id`. Re-running the batch after a crash skips
   already-settled vendors and the idempotency key blocks any duplicate gateway payout — **no double-pay**.

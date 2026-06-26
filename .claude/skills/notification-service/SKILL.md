@@ -18,7 +18,7 @@ It does not own domain data; it acts on the payloads core-api sends.
 - BullMQ queues over Redis: `eventhub:notifications`, `eventhub:webhooks`, plus a dead-letter queue.
 - Job types — email (simulated): `order.confirmation`, `event.reminder`, `payout.completed`, `vendor.kyc_decision`;
   vendor webhooks: `order.created`, `event.sold_out`, `payout.sent`.
-- **Retry:** exponential backoff ~ `1s, 4s, 16s, 64s` (4^n), **max 5 attempts**, then dead-letter + mark `failed`.
+- **Retry:** exponential backoff `1s, 4s, 16s, 64s, 256s` (`delay = 4^(retry-1)`), **max 5 retries** = 6 total attempts (BullMQ `attempts: 6`), then dead-letter + mark `failed`.
 - **Idempotent delivery:** dedupe on `idempotencyKey`. Vendor webhooks HMAC-signed
   (`X-EventHub-Signature`). Delivery status tracked per notification (`pending -> sent | retrying | failed`).
 - `Channel` interface (`send(payload)`) with `EmailChannel` (sim) + `VendorWebhookChannel`. TypeScript strict.

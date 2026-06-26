@@ -42,7 +42,8 @@ When delivering a vendor webhook, forward it as the `Log-Trace-ID` header too.
 
 ## C. Queue, retry & dead-letter (core requirement)
 - Consume jobs from a named Redis queue (e.g. `eventhub:notifications`, `eventhub:webhooks`).
-- **Retry with exponential backoff:** delays ~ `1s, 4s, 16s, 64s` (4^n), **max 5 attempts**.
+- **Retry with exponential backoff:** delays `1s, 4s, 16s, 64s, 256s` (`delay = 4^(retry-1)`), **max 5 retries** =
+  **6 total attempts incl. the initial** (BullMQ `attempts: 6`), then dead-letter.
 - On exhaustion → move to a **dead-letter queue** and mark the notification `failed`; never lose the record.
 - **Idempotent delivery:** dedupe on `idempotencyKey` so a re-published job doesn't double-send.
 
@@ -65,7 +66,8 @@ queryable via a small HTTP endpoint for the dashboard. Status updates can also b
 
 ## G. Testing (required)
 vitest/jest. Cover:
-- **Retry/backoff:** a failing delivery retries with the expected schedule and stops at 5 attempts → dead-letter.
+- **Retry/backoff:** a failing delivery retries on the schedule (1/4/16/64/256s) and dead-letters after the 5th
+  retry (the 6th total attempt).
 - **Idempotency:** the same `idempotencyKey` delivered twice sends once.
 - **Webhook signing:** payload is HMAC-signed; non-2xx → retry path.
 - **Delivery tracking:** status transitions recorded correctly.
