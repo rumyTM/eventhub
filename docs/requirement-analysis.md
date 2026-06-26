@@ -65,8 +65,8 @@ Concrete rules per module. Contracts are detailed in [`system-architecture.md`](
 - **Auth & roles.** Sanctum bearer tokens. Three roles (admin, vendor, attendee) with ownership boundaries — a
   vendor may only mutate its own events; an attendee may only view/refund its own orders. Role + ownership checked
   in policies, not controllers.
-- **Vendors / KYC.** A vendor starts `pending`; an admin transitions to `approved` or `rejected`. Only an
-  `approved` vendor may publish events or receive payouts.
+- **Vendors / KYC.** A vendor starts `pending`; an admin transitions to `verified` or `rejected`. Only a
+  `verified` vendor may publish events or receive payouts.
 - **Events.** Lifecycle `draft → published → ongoing → completed`, plus `cancelled` (terminal from any non-completed
   state). Each event stores `starts_at` (UTC) + an IANA `timezone`. Only `published` events are publicly listable.
   Cancelling an event with sold tickets triggers mass refunds (§5).

@@ -18,12 +18,20 @@ erDiagram
     attendees ||--o{ orders : places
     orders ||--o{ order_items : contains
     orders ||--o{ ticket_holds : holds
-    orders ||--o| payments : "paid by"
+    orders ||--o{ payments : "charged via (retries)"
     payments ||--o{ refunds : "refunded by"
     orders ||--o{ tickets : issues
     orders ||--o{ disputes : "may raise"
+    refunds ||--o| disputes : "may resolve"
     vendors ||--o{ payouts : "settled via"
+    vendors ||--o{ ledger_entries : "balance derived from"
+    vendors ||--o{ kyc_documents : submits
+    users ||--o{ vendors : "reviews KYC (admin)"
+    users ||--o{ disputes : "resolves (admin)"
+    users ||--o{ tickets : "checks in (staff)"
+    vendors ||--o{ sales_reports : "reported in"
     events ||--o{ waitlist_entries : "waitlisted on"
+    events ||--o{ event_reminders : "reminders tracked"
     attendees ||--o{ waitlist_entries : joins
 
     users {
@@ -39,10 +47,30 @@ erDiagram
         bigint id PK
         bigint user_id FK
         string business_name
+        string legal_name
+        string trade_license_no
+        string tin_bin "encrypted"
+        string representative_nid "encrypted"
+        string contact_phone
+        string address
         enum kyc_status "pending|verified|rejected"
-        json payout_account "[PLACEHOLDER] sensitive"
+        timestamp submitted_at "nullable"
+        bigint reviewed_by FK "admin user_id, nullable"
+        timestamp reviewed_at "nullable"
+        string rejection_reason "nullable"
+        json payout_account "[PLACEHOLDER] encrypted"
         string webhook_url "nullable"
+        string webhook_secret "per-vendor HMAC, encrypted"
         decimal commission_rate "nullable override"
+        timestamp deleted_at
+    }
+    kyc_documents {
+        bigint id PK
+        bigint vendor_id FK
+        enum type "trade_license|nid|bank_statement"
+        string storage_path "encrypted; signed-URL access"
+        enum status "pending|verified|rejected"
+        timestamp uploaded_at
         timestamp deleted_at
     }
     attendees {
@@ -65,15 +93,16 @@ erDiagram
     ticket_types {
         bigint id PK
         bigint event_id FK
-        enum kind "early_bird|vip|general|group_bundle"
-        bigint price "minor units"
+        enum kind "early_bird|vip|general"
+        bigint price "minor units, per unit"
         string currency "ISO 4217"
         int quantity_total
         int quantity_sold "denormalized counter"
-        int group_size "nullable"
-        decimal group_discount "nullable"
+        int group_size "nullable, N units per bundle"
+        decimal group_discount "nullable, fraction off N units"
         timestamp sales_start
         timestamp sales_end
+        timestamp deleted_at
     }
     orders {
         bigint id PK
@@ -81,6 +110,7 @@ erDiagram
         enum status "pending|paid|expired|failed|cancelled|refunded"
         bigint total "minor units"
         string currency
+        decimal commission_rate "snapshot at sale time"
         string idempotency_key UK
         timestamp created_at
     }
@@ -89,7 +119,7 @@ erDiagram
         bigint order_id FK
         bigint ticket_type_id FK
         int quantity
-        bigint unit_price "minor units"
+        bigint unit_price "minor units, locked at hold creation"
     }
     ticket_holds {
         bigint id PK
@@ -105,6 +135,7 @@ erDiagram
         bigint ticket_type_id FK
         string qr_code UK
         timestamp checked_in_at "nullable"
+        bigint checked_in_by FK "admin/staff user_id, nullable"
     }
     payments {
         bigint id PK
@@ -112,6 +143,7 @@ erDiagram
         string gateway "stripe_sim|paypal_sim"
         enum status "pending|succeeded|failed"
         string external_ref "[PLACEHOLDER]"
+        string idempotency_key UK "per charge attempt"
         bigint amount "minor units"
         string currency
     }
@@ -136,8 +168,10 @@ erDiagram
     disputes {
         bigint id PK
         bigint order_id FK
+        bigint refund_id FK "nullable, resolution refund"
         string reason
         enum status "open|resolved|rejected"
+        bigint resolved_by FK "admin user_id, nullable"
         text resolution "nullable"
     }
     waitlist_entries {
@@ -147,13 +181,16 @@ erDiagram
         bigint attendee_id FK
         int position
         enum status "waiting|offered|claimed|expired"
+        timestamp offered_at "nullable"
+        timestamp claim_expires_at "nullable, +30 min"
     }
     ledger_entries {
         bigint id PK
+        bigint vendor_id FK "nullable, for balance"
         string subject_type "order|payment|refund|payout"
         bigint subject_id
-        string entry_type
-        bigint amount "minor units, signed"
+        string entry_type "sale|commission|payout|refund|clawback"
+        bigint amount "minor units, signed (+/-)"
         string currency
         timestamp created_at "append-only"
     }
@@ -165,14 +202,206 @@ erDiagram
         string status
         timestamp created_at
     }
+    settings {
+        bigint id PK
+        string key UK
+        string value
+        enum type "int|decimal|string|bool"
+        timestamp updated_at
+    }
+    event_reminders {
+        bigint id PK
+        bigint event_id FK
+        enum type "24h|1h"
+        timestamp sent_at
+    }
+    sales_reports {
+        bigint id PK
+        date report_date
+        bigint vendor_id FK "nullable = platform-wide"
+        int tickets_sold
+        bigint gross "minor units"
+        bigint commission "minor units"
+        bigint net "minor units"
+        string currency
+        timestamp created_at
+    }
 ```
 
 ## Relationship notes
-<!-- FILL: explain each non-obvious relationship and the integrity rules:
-- users 1:1 vendors / attendees (role-specific profile).
-- ticket_holds vs tickets: holds are transient reservations (15 min); tickets are issued only after payment succeeds.
-- orders ↔ payments 1:1 (one charge per order) but payments ↔ refunds 1:N (partial refunds).
-- ledger_entries is polymorphic + append-only — the financial source of truth.
-- idempotency_keys guards money operations (also in payment-service's own DB).
-- Why quantity_sold is denormalized on ticket_types (fast availability check under lock).
--->
+
+- **users 1:1 vendors / attendees.** A `user` holds auth + role; the role-specific profile lives in `vendors` or
+  `attendees` (one optional profile each, matching the `role` enum). Splitting keeps role-specific columns
+  (`kyc_status`, `payout_account` vs `phone`) off the shared auth row.
+- **vendors 1:N events 1:N ticket_types.** A vendor owns its events; an event owns its ticket types. Ownership is
+  the authorization boundary — a vendor may only mutate rows reachable through its own `vendor_id`.
+- **ticket_holds vs tickets.** Both reference `order` and `ticket_type` but mean different things: a `ticket_hold`
+  is a **transient count reservation** (15-min `expires_at`, status `active|released|converted`); a `ticket` is the
+  **issued, QR-coded** artifact created **only after payment succeeds**. A hold converts to tickets on payment;
+  expired holds are released by cron and never become tickets.
+- **orders 1:N payments (retry cardinality), payments 1:N refunds.** *Decision:* an order has **many** payment
+  rows, not one — a failed/declined charge can be retried, each attempt is its own `payments` row, and **at most one**
+  reaches `succeeded`. This keeps every gateway attempt auditable instead of overwriting a single row, and the
+  succeeded payment is the one that drives ticket issuance and the ledger. Each attempt carries its own
+  `payments.idempotency_key` (the key core-api sends to the payment-service for that charge), so a retried network
+  call for the **same** attempt is de-duplicated by the gateway and returns the original result, while a genuinely
+  **new** attempt uses a fresh key and a new row — the unique key is what distinguishes "retry the same charge" from
+  "start another charge." A succeeded payment can then be refunded in parts over time (1:N) — supporting the
+  100/50/0% policy and partial/dispute refunds. Refund totals are validated against the ledger so cumulative refunded
+  never exceeds the charge.
+- **vendor KYC (vendors + kyc_documents).** Identity fields (`legal_name`, `trade_license_no`, `tin_bin`,
+  `representative_nid`, `contact_phone`, `address`) live on `vendors`; uploaded evidence lives in `kyc_documents`
+  (1:N — a trade license, an NID, a bank statement). The verification audit (`submitted_at`, `reviewed_by` → the
+  admin `user`, `reviewed_at`, `rejection_reason`) records who decided KYC and when. `reviewed_by` is a **second**
+  `users → vendors` relationship (the admin reviewer), distinct from the vendor's own `user_id` profile link.
+- **disputes resolution.** A `dispute` belongs to an `order`, is resolved by an admin (`resolved_by` → `users`), and
+  **optionally** references the `refund` that settled it (`refund_id`, nullable — an out-of-policy contest may be
+  resolved by issuing a refund, or rejected with no refund).
+- **waitlist claim window.** When a freed ticket is offered, `offered_at` is stamped and `claim_expires_at =
+  offered_at + 30 min`. A cron expires unclaimed offers (`status offered → expired`) and rolls the offer to the next
+  `position` in line for that `ticket_type`.
+- **event_reminders (idempotent cron).** One row per `(event_id, type)` marks that the `SendEventReminders` batch
+  fired for that window, so re-running the cron never double-dispatches. Per-recipient delivery is tracked in the
+  notification-service, not here. *Deliberate simplification:* dedupe is **per event-window, not per recipient** — the
+  batch reminds the holders known when it fired; an attendee who purchases **after** the window has already run is not
+  retro-reminded. Acceptable because the reminder is a courtesy, not a money path, and per-recipient tracking would
+  add cost disproportionate to its value at this scope.
+- **sales_reports (daily cron rollup).** Each row is a snapshot produced by `GenerateSalesReport` for a
+  `(report_date, vendor_id)` pair, with `vendor_id` **nullable** to mean a **platform-wide** roll-up. `unique(report_date,
+  vendor_id)` makes regeneration idempotent: re-running the cron **upserts** the same row rather than appending a
+  duplicate. It is a derived read-model — the `ledger_entries` remain the source of truth; a report can always be
+  recomputed from the ledger.
+  - *Caveat (NULL is distinct in a MySQL unique index):* the `unique(report_date, vendor_id)` constraint does **not**
+    prevent duplicate **platform-wide** rows, because every `vendor_id IS NULL` value is treated as distinct — the
+    index guards vendor-scoped rows only. So `GenerateSalesReport` must dedupe the platform-wide row at the
+    application layer, via `updateOrCreate` keyed on `report_date` + the `vendor_id` (or its NULL case). Net:
+    **the DB unique index guards vendor-scoped rows; app logic guards the platform-wide (NULL) row.** Alternatively, a
+    stored/generated `COALESCE(vendor_id, 0)` column under the unique index would let the database enforce both cases.
+- **tickets check-in.** `checked_in_at` records *when* a ticket was scanned; `checked_in_by` (nullable → `users`)
+  records *which* admin/staff member performed the check-in, for an accountable entry audit. Both null until scanned.
+- **settings (admin-configurable platform values).** A small key/value table holding the **platform commission
+  rate** and **minimum payout threshold** (admin-settable). The commission rate is read from here **at sale time** and
+  snapshotted onto `orders.commission_rate`, so changing the setting never rewrites historical payout math.
+- **orders → order_items.** Line items carry `quantity` and the `unit_price` **locked at hold creation**; the order's
+  `total` and `commission_rate` are snapshots fixed at sale time (price quoted = price charged; payout uses the
+  historical commission rate).
+- **group bundles are attributes, not a table.** A bundle is `group_size` (N units) + `group_discount` on the
+  `ticket_type` — a discount applied when N underlying units are bought together. There is no `group_bundle` SKU;
+  inventory still decrements by the N units, and `order_items.unit_price` reflects the discounted per-unit price.
+- **ledger_entries is polymorphic + append-only.** `subject_type`/`subject_id` point at the order/payment/refund/
+  payout that caused the entry; `vendor_id` attributes it to a vendor for balance math; `amount` is **signed**. It is
+  the financial source of truth — never updated or deleted.
+- **vendor balance is derived, not stored.** There is **no mutable balance column** on `vendors`. Balance =
+  `SUM(ledger_entries.amount) WHERE vendor_id = ?` (sales − commission − payouts ± clawbacks). A refund-after-payout
+  writes a negative `clawback` entry, so the derived balance **can go negative** and is reconciled against the next
+  payout cycle.
+- **idempotency_keys** guards every money operation (checkout, charge, refund, payout) against duplicate side
+  effects; the payment-service keeps its **own** copy in its own DB for its inbound calls.
+
+## Normalization & denormalization decisions
+
+The core is normalized to ~3NF: auth split from role profiles; `events → ticket_types`; `orders → order_items`; no
+repeating groups. The following denormalizations are **deliberate**, each justified by a hot path or an
+immutability requirement:
+
+- **`ticket_types.quantity_sold` (counter).** Availability (`quantity_total − quantity_sold − active_holds`) is
+  evaluated **inside the distributed lock on every checkout** — the hottest path in the system. A maintained counter
+  avoids a `COUNT` over `tickets`/`order_items` per attempt. Incremented transactionally on payment success only.
+- **`order_items.unit_price` (price snapshot).** Decouples the order from later price edits / sales-window cutoffs.
+  The quoted price is captured at hold creation and is the charged price.
+- **`orders.commission_rate` (rate snapshot).** Payouts compute from the rate in force **at sale time**, not the
+  live platform/vendor rate, so historical payouts stay reproducible from the ledger even if the rate later changes.
+- **`orders.total` (sum cache).** Cached sum of line items for fast listing/queries; `order_items` remain the source
+  of truth and the total is recomputed/verified at sale time.
+- **`ledger_entries.vendor_id` (attribution).** Denormalized from the `order → event → vendor` chain so a vendor
+  balance is a single indexed aggregate instead of a 3-table join on a frequently-run query.
+- **`group_size` / `group_discount` on `ticket_types`.** Bundle modelled as attributes over the underlying units
+  rather than a parallel SKU table to reconcile.
+
+## Indexing strategy
+
+Each index named by the query it serves:
+
+| Table | Index (columns) | Serves |
+|---|---|---|
+| `users` | `unique(email)` | login / registration uniqueness |
+| `events` | `idx_events_status_starts_at(status, starts_at)` | public listing of `published` events; `SendEventReminders` cron window |
+| `events` | `idx_events_vendor_id(vendor_id)` | a vendor's own events |
+| `ticket_types` | `idx_ticket_types_event_id(event_id)` | load ticket types for an event detail page |
+| `ticket_holds` | `idx_holds_type_status(ticket_type_id, status)` | `SUM(quantity)` of **active** holds for the availability check (under lock) |
+| `ticket_holds` | `idx_holds_status_expires_at(status, expires_at)` | `ReleaseExpiredHolds` cron sweeping active+expired holds |
+| `orders` | `unique(idempotency_key)` | idempotent re-checkout returns the same order |
+| `orders` | `idx_orders_attendee_id(attendee_id)` | attendee order history |
+| `order_items` | `idx_order_items_order_id(order_id)` | load an order's lines |
+| `tickets` | `unique(qr_code)` | QR check-in lookup |
+| `payments` | `idx_payments_order_id(order_id)` | resolve a payment from its order / webhook callback |
+| `payments` | `unique(idempotency_key)` | de-dupe a retried charge attempt at the payment-service |
+| `refunds` | `idx_refunds_payment_id(payment_id)` | cumulative-refund validation against a payment |
+| `payouts` | `unique(idempotency_key)` | no double-pay on retry |
+| `payouts` | `idx_payouts_vendor_status(vendor_id, status)` | a vendor's payout history / pending settlement |
+| `payouts` | `idx_payouts_batch_id(batch_id)` | reconcile a daily batch run |
+| `ledger_entries` | `idx_ledger_vendor_created(vendor_id, created_at)` | vendor balance aggregate + next-payout window |
+| `ledger_entries` | `idx_ledger_subject(subject_type, subject_id)` | trace every entry caused by one order/payment/payout |
+| `waitlist_entries` | `idx_waitlist_type_status_pos(ticket_type_id, status, position)` | offer a freed ticket to the next person in line |
+| `waitlist_entries` | `idx_waitlist_claim_expires(status, claim_expires_at)` | cron expiring unclaimed 30-min offers |
+| `kyc_documents` | `idx_kyc_documents_vendor_id(vendor_id)` | load a vendor's KYC evidence for admin review |
+| `vendors` | `idx_vendors_kyc_status(kyc_status)` | admin KYC review queue (pending vendors) |
+| `disputes` | `idx_disputes_status(status)` | admin dispute queue (open disputes) |
+| `event_reminders` | `unique(event_id, type)` | idempotent reminder dispatch — one send per window |
+| `sales_reports` | `unique(report_date, vendor_id)` | idempotent daily report regeneration (upsert) |
+| `settings` | `unique(key)` | single-row lookup of a platform setting |
+| `idempotency_keys` | `unique(key)` | duplicate money-operation guard |
+
+## Financial audit trail
+
+`ledger_entries` is an **append-only, polymorphic ledger** and the single source of truth for money:
+
+- Every financial state change writes a new **signed** row (`entry_type` ∈ `sale | commission | payout | refund |
+  clawback`): a credit to the vendor is positive, commission/payout/clawback are negative. Rows are **never updated
+  or deleted** — corrections are new offsetting entries (e.g. a refund-after-payout writes a negative `clawback`).
+- Vendor balance and platform commission are **computed by aggregation** over the ledger, never read from a mutable
+  column — so the books always reconcile and the balance is reproducible from history alone.
+- `payments`, `refunds`, and `payouts` keep their own status lifecycles for operational tracking, but a status
+  transition there **also writes a ledger entry**; the ledger, not the row's current status, is authoritative for
+  accounting.
+- `idempotency_keys` (here and in the payment-service DB) ensures a retried charge/refund/payout produces **one**
+  ledger effect, not many.
+- The active `commission_rate` and `minimum_payout_threshold` come from `settings`, but are **snapshotted at sale
+  time** onto `orders.commission_rate`. Editing a setting changes future sales only; past ledger/payout math is
+  reproduced from the snapshot, never recomputed against the live value.
+
+## Soft-delete vs hard-delete policy
+
+- **Soft-delete (`deleted_at`):** `users`, `vendors`, `attendees`, `events`, `ticket_types`, `kyc_documents`. These
+  are referenced by historical orders/tickets (or are KYC evidence) and must stay resolvable for audit after
+  "deletion." Listing queries filter out soft-deleted rows; foreign-key resolution from financial records still works.
+- **Never deleted (immutable / append-only):** `orders`, `order_items`, `payments`, `refunds`, `payouts`,
+  `ledger_entries`, `tickets`, `disputes`, `event_reminders`. Financial and issued-artifact records are **never**
+  hard- or soft-deleted; lifecycle is expressed through `status` columns (e.g. `orders.status = cancelled|refunded`),
+  and `ledger_entries` is strictly append-only.
+- **Config-style / upsert (no soft-delete):** `settings` is updated in place (configuration, not history — the
+  historical value lives in the order snapshot). `sales_reports` is an **append/upsert** derived rollup: the daily
+  cron upserts on `unique(report_date, vendor_id)`, rows are not soft-deleted, and the whole table can be safely
+  truncated and **recomputed from `ledger_entries`** if needed — it is a read-model, not a source of truth.
+- **Transient / prunable:** `ticket_holds` resolve to `released`/`converted` rather than being deleted in-band;
+  `idempotency_keys` may be pruned by a retention job after their window. Neither is part of the soft-delete model.
+
+## PII & KYC data handling (Bangladesh Bank / data-privacy aware)
+
+KYC introduces regulated personal and business data, so it is handled to a higher standard than the rest of the
+schema:
+
+- **Minimize.** Store only what KYC actually requires (`legal_name`, `trade_license_no`, `tin_bin`,
+  `representative_nid`, `contact_phone`, `address`) — no card data, no surplus identifiers. Document images live in
+  object storage, not the DB.
+- **Encrypt sensitive identifiers & documents.** `tin_bin`, `representative_nid`, `payout_account`, and
+  `webhook_secret` are encrypted at rest (application-level cast); `kyc_documents.storage_path` points at an
+  **encrypted** object, never raw bytes in the DB.
+- **Signed-URL access only.** KYC documents are served exclusively via **short-lived signed URLs** generated per
+  request for an authorized admin — the API never returns document bytes or a durable public path.
+- **Redact from logs.** All of the above fields (plus any KYC payload) are on the request-logging redaction list;
+  they never appear in logs, error traces, or API responses — sensitive values are shown as `[PLACEHOLDER]`.
+- **Retention.** KYC records are retained only as long as the regulatory/AML obligation requires, then purged or
+  hard-anonymized; financial ledger rows that merely *reference* a vendor are kept (append-only) but carry no raw
+  PII. Exact retention windows are set per Bangladesh Bank / applicable data-privacy guidance and reviewed before
+  go-live. (Flag to a PM: confirm the mandated KYC retention period.)
