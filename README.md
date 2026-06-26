@@ -1,0 +1,94 @@
+# EventHub — Multi-Vendor Event Ticketing & Payout Platform
+
+EventHub lets **vendors** create events and sell tickets, **attendees** buy tickets and check in, and **platform
+admins** approve vendors, set commission, and resolve disputes. It is built as a small set of services around a
+Laravel core, with money handled carefully: every financial operation is **auditable, idempotent, and resilient to
+partial failure**.
+
+> **Reviewers start here**, then read [`CLAUDE.md`](./CLAUDE.md) for the full system map. Planning documents are in
+> [`docs/`](./docs). The build is tracked in [`PLAN.md`](./PLAN.md) and [`WORKLOG.md`](./WORKLOG.md).
+>
+> **Video walkthrough:** _[add Loom/Drive/YouTube unlisted link here]_
+
+## Architecture at a glance
+
+| Service | Stack | Port | Responsibility |
+|---|---|---|---|
+| [`services/core-api`](./services/core-api) | Laravel 11 | 8000 | Events, tickets, orders/holds, vendors, payouts, admin, auth, cron — the orchestrator |
+| [`services/payment-service`](./services/payment-service) | Laravel 11 | 8001 | Simulated gateways, charges, refunds, payout execution, idempotency (private) |
+| [`services/notification-service`](./services/notification-service) | Node.js + BullMQ | 8002 | Email (simulated), vendor webhooks, retry/backoff, dead-letter, delivery tracking |
+| [`frontend`](./frontend) | Next.js 14 | 3000 | Vendor dashboard, attendee pages, admin panel |
+| MySQL | 8.0 | 3306 | One database per service |
+| Redis | 7 | 6379 | Notification queue + distributed locks |
+
+Communication: frontend → core-api (Sanctum bearer); core-api ↔ payment-service (REST, shared secret +
+idempotency key, signed webhook callback); core-api → notification-service (Redis queue); notification-service →
+vendors (signed webhooks). Full diagram and contracts in [`CLAUDE.md`](./CLAUDE.md) and
+[`docs/system-architecture.md`](./docs/system-architecture.md).
+
+## Run it (docker-compose — recommended)
+
+```bash
+cp .env.example .env          # then fill in secrets (placeholders shown)
+docker compose up -d --build
+docker compose ps             # wait for healthy
+
+# bootstrap data
+docker compose exec core-api php artisan migrate --seed
+docker compose exec payment-service php artisan migrate --seed
+```
+
+Then open: frontend `http://localhost:3000` · core-api `http://localhost:8000/api/v1` ·
+payment-service `http://localhost:8001` · notification-service `http://localhost:8002`.
+
+Seed data creates demo `admin`, `vendor`, and `attendee` accounts (credentials printed by the seeder — demo-only,
+never real). API documentation (Postman/OpenAPI) is in [`docs/`](./docs) once generated.
+
+### Local / Laragon fallback (no Docker)
+Run MySQL + Redis locally and create the three databases (`eventhub_core`, `eventhub_payments`,
+`eventhub_notifications`). Then per service:
+
+```bash
+# Laravel services (core-api, payment-service)
+cd services/core-api && composer install && cp ../../.env.example .env \
+  && php artisan key:generate && php artisan migrate --seed && php artisan serve --port=8000
+# queue worker + scheduler (separate terminals)
+php artisan queue:work    #   php artisan schedule:work
+
+# notification-service
+cd services/notification-service && npm install && npm run dev    # :8002
+
+# frontend
+cd frontend && npm install && npm run dev                          # :3000
+```
+
+## Repository layout
+
+```
+.
+├── CLAUDE.md                 # system map + onboarding (read this)
+├── PLAN.md / WORKLOG.md      # execution checklist + running log
+├── docker-compose.yml        # full stack
+├── docs/                     # requirement analysis, architecture, ERD, decision log, dev plan
+├── .claude/                  # AI workflow: skills, slash commands, review subagents
+├── services/
+│   ├── core-api/             # Laravel main app  (own CLAUDE.md)
+│   ├── payment-service/      # Laravel payment microservice  (own CLAUDE.md)
+│   └── notification-service/ # Node notification microservice  (own CLAUDE.md)
+└── frontend/                 # Next.js app  (own CLAUDE.md)
+```
+
+## AI-augmented workflow
+This repo is structured for both human and AI developers. Each service has its own `CLAUDE.md` (productive in
+~30 min), plus scoped agent skills and slash commands in `.claude/`. See [`CLAUDE.md`](./CLAUDE.md) §7 and the
+[AI workflow playbook](./docs/ai-workflow.md) for how the build is driven and how a new developer contributes.
+
+## Testing
+Required business-logic tests live in core-api (order processing/holds/oversell, payout calculation, inventory) and
+payment-service (idempotency, gateway outcomes). Run `php artisan test` per Laravel service and `npm test` in the
+Node service. See each service's `CLAUDE.md`.
+
+## Security
+Payment data handling follows PCI-DSS-aware practices: no card PAN/CVV/token/secret in code, logs, tests, or
+responses (`[PLACEHOLDER]` everywhere); validated input only; payment/notification endpoints are never public;
+financial history is append-only. See [`CLAUDE.md`](./CLAUDE.md) §6.

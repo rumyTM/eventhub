@@ -1,0 +1,106 @@
+# EventHub — full stack. `cp .env.example .env`, fill secrets, then `docker compose up -d --build`.
+# Each service Dockerfile is created during /scaffold-service. Until a service is scaffolded its build will no-op or
+# fail — bring services up incrementally as you build them. Secrets come from .env only; never commit real values.
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      # create all three service databases on first boot
+      MYSQL_DATABASE: ${CORE_DB_DATABASE}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro   # init.sql creates payments + notifications DBs
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  core-api:
+    build: ./services/core-api
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      APP_PORT: 8000
+      DB_HOST: mysql
+      DB_DATABASE: ${CORE_DB_DATABASE}
+      REDIS_HOST: redis
+      PAYMENT_SERVICE_URL: http://payment-service:8001
+      PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
+      NOTIFICATION_QUEUE_REDIS: redis://redis:6379
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  core-api-worker:        # queue worker (notification publish, payment calls)
+    build: ./services/core-api
+    command: php artisan queue:work --tries=3
+    env_file: .env
+    environment: { DB_HOST: mysql, REDIS_HOST: redis }
+    depends_on:
+      core-api: { condition: service_started }
+
+  core-api-scheduler:     # cron: ReleaseExpiredHolds, payout batch, reminders, reports, waitlist
+    build: ./services/core-api
+    command: sh -c "while true; do php artisan schedule:run; sleep 60; done"
+    env_file: .env
+    environment: { DB_HOST: mysql, REDIS_HOST: redis }
+    depends_on:
+      core-api: { condition: service_started }
+
+  payment-service:
+    build: ./services/payment-service
+    ports:
+      - "8001:8001"
+    env_file: .env
+    environment:
+      APP_PORT: 8001
+      DB_HOST: mysql
+      DB_DATABASE: ${PAYMENTS_DB_DATABASE}
+      PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
+      CORE_API_URL: http://core-api:8000
+      CORE_API_WEBHOOK_SECRET: ${CORE_API_WEBHOOK_SECRET}
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  notification-service:
+    build: ./services/notification-service
+    ports:
+      - "8002:8002"
+    env_file: .env
+    environment:
+      PORT: 8002
+      REDIS_URL: redis://redis:6379
+      DB_HOST: mysql
+      DB_DATABASE: ${NOTIFICATIONS_DB_DATABASE}
+      VENDOR_WEBHOOK_SECRET: ${VENDOR_WEBHOOK_SECRET}
+    depends_on:
+      redis: { condition: service_healthy }
+      mysql: { condition: service_healthy }
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+    depends_on:
+      core-api: { condition: service_started }
+
+volumes:
+  mysql_data:

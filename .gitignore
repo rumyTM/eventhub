@@ -1,0 +1,26 @@
+# Secrets & env
+.env
+*.env.local
+**/.env
+!.env.example
+
+# PHP / Laravel
+/services/*/vendor/
+/services/*/storage/*.key
+/services/*/.phpunit.result.cache
+
+# Node / Next
+node_modules/
+**/node_modules/
+/frontend/.next/
+/services/notification-service/dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Docker volumes / logs
+/docker/**/data/
+*.log
