@@ -4,11 +4,19 @@ namespace App\Providers;
 
 use App\Repositories\Contracts\AttendeeRepositoryInterface;
 use App\Repositories\Contracts\EventRepositoryInterface;
+use App\Repositories\Contracts\IdempotencyKeyRepositoryInterface;
+use App\Repositories\Contracts\OrderRepositoryInterface;
+use App\Repositories\Contracts\SettingRepositoryInterface;
+use App\Repositories\Contracts\TicketHoldRepositoryInterface;
 use App\Repositories\Contracts\TicketTypeRepositoryInterface;
 use App\Repositories\Contracts\UserRepositoryInterface;
 use App\Repositories\Contracts\VendorRepositoryInterface;
 use App\Repositories\Eloquent\AttendeeRepository;
 use App\Repositories\Eloquent\EventRepository;
+use App\Repositories\Eloquent\IdempotencyKeyRepository;
+use App\Repositories\Eloquent\OrderRepository;
+use App\Repositories\Eloquent\SettingRepository;
+use App\Repositories\Eloquent\TicketHoldRepository;
 use App\Repositories\Eloquent\TicketTypeRepository;
 use App\Repositories\Eloquent\UserRepository;
 use App\Repositories\Eloquent\VendorRepository;
@@ -27,6 +35,10 @@ class RepositoryServiceProvider extends ServiceProvider
         AttendeeRepositoryInterface::class => AttendeeRepository::class,
         EventRepositoryInterface::class => EventRepository::class,
         TicketTypeRepositoryInterface::class => TicketTypeRepository::class,
+        OrderRepositoryInterface::class => OrderRepository::class,
+        TicketHoldRepositoryInterface::class => TicketHoldRepository::class,
+        IdempotencyKeyRepositoryInterface::class => IdempotencyKeyRepository::class,
+        SettingRepositoryInterface::class => SettingRepository::class,
     ];
 
     public function register(): void

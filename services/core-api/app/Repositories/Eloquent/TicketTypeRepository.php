@@ -5,6 +5,7 @@ namespace App\Repositories\Eloquent;
 use App\Models\TicketType;
 use App\Repositories\Contracts\TicketTypeRepositoryInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 
 final class TicketTypeRepository implements TicketTypeRepositoryInterface
 {
@@ -14,6 +15,19 @@ final class TicketTypeRepository implements TicketTypeRepositoryInterface
             ->where('event_id', $eventId)
             ->orderBy('price')
             ->paginate($perPage);
+    }
+
+    public function findManyForCheckout(array $ids): Collection
+    {
+        return TicketType::query()
+            ->with('event')
+            ->whereKey($ids)
+            ->get();
+    }
+
+    public function lockForUpdate(string $id): TicketType
+    {
+        return TicketType::query()->whereKey($id)->lockForUpdate()->firstOrFail();
     }
 
     public function sumQuantityTotalForEvent(string $eventId, ?string $exceptId = null): int

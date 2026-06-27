@@ -6,6 +6,68 @@
 
 ---
 
+## 2026-06-29 — Day 3 (slice 1): Checkout — order + 15-min holds, distributed lock, idempotency (core-api)
+**Maps to:** Day 3 — checkout/holds/locking (PLAN.md, highest-value slice); CLAUDE.md §F Order processing;
+ADR-07 (hybrid lock), ADR-09 (idempotency), ADR-24 (new — checkout mechanics).
+
+**What changed**
+- **`POST /api/v1/orders`** (auth:sanctum + role:attendee + throttle:checkout). Idempotency-Key is a required
+  header (missing → 422). Produces a `pending` order + `order_items` + 15-min `ticket_holds` only — **no tickets
+  issued, `quantity_sold` untouched** (those move on payment success, a later slice).
+- **`CheckoutService`** — the core. Hybrid lock (ADR-07): a short-lived per-`ticket_type` `Cache::lock`
+  (Redis in prod, array store in tests) acquired in **sorted id order** (deadlock-safe) fronts an authoritative
+  `SELECT … FOR UPDATE` row lock taken inside the `DB::transaction`. Availability =
+  `quantity_total − quantity_sold − SUM(active holds WHERE status=active AND expires_at > now())`, computed at
+  **read time** under the lock. The whole multi-line cart is one transaction — a mid-cart failure persists nothing.
+  Duplicate cart lines are merged per ticket type before the check. Idempotency (ADR-09): same key+body → same
+  order (no new side effects), same key+different body → 409, concurrent-duplicate caught via the unique key and
+  resolved as a replay.
+- **`ResolveTicketPrice`** action — group-bundle pricing via **integer (basis-point) arithmetic** (no float drift):
+  if `group_size` set and line qty ≥ group_size, every unit = `round(price × (1 − discount))` half-up.
+- **`ReleaseExpiredHolds`** — `ReleaseExpiredHoldsService` + artisan command + every-5-min schedule
+  (`withoutOverlapping`). Flips active+due holds → `released` and their still-`pending` orders → `expired`;
+  idempotent, never touches converted holds / non-pending orders. Comment + design note: **correctness does not
+  depend on this cron** — availability already ignores expired holds at read time.
+- **Repositories** (contracts + Eloquent, bound in provider): `OrderRepository`, `TicketHoldRepository`
+  (`sumActiveQuantityForTicketType`, `releaseDueActiveHolds`), `IdempotencyKeyRepository`, `SettingRepository`;
+  `TicketTypeRepository` gained `lockForUpdate` + `findManyForCheckout`. 6 Orders domain exceptions, `CheckoutRequest`,
+  `OrderResource` (items + holds + soonest `hold_expires_at` for the countdown), `OrderController`, `SettingFactory`,
+  orders lang group.
+
+**financial-logic-reviewer — findings addressed**
+- **C-1 (fixed):** commission rate was a PHP float into a `decimal(5,4)` column. Now snapshotted as an exact
+  decimal **string**; `OrderResource` returns the decimal string (e.g. `"0.1000"`), no float anywhere on the path.
+- **C-2 (fixed):** `exists:ticket_types,id` accepted soft-deleted rows. Now `Rule::exists(...)->whereNull('deleted_at')`
+  → a deleted ticket type is a clean 422.
+- **H-1 (fixed):** purchasability + sales window are now **re-validated on the fresh locked row** inside the
+  transaction (not just the pre-lock snapshot), so an event cancelled mid-checkout cannot create holds.
+- **H-3 (fixed):** a missing attendee profile now returns 422 (guarded), not a 500.
+- **H-4 (fixed):** pricing switched from float to integer basis-point math.
+- **Accepted (documented, not changed):** **C-3** cron SELECT-then-UPDATE — guarded by `withoutOverlapping` + an
+  idempotent `Released→Released` update + `status=pending` filter; revisit before wiring waitlist notifications to
+  the expiry path. **H-2** concurrent-key recovery path is correct (unique-violation → replay). **N-2** order-total
+  overflow is far outside realistic value bounds (max:50 lines × max:100 qty).
+
+**Decisions promoted →** `docs/technical-decision-log.md` **ADR-24** (Idempotency-Key via required header;
+group-bundle pricing rule; cart-line normalization; lock-contention → retryable 409).
+
+**Verification**
+- `composer format` (Pint) — clean. `php artisan test` → **94 passed (265 assertions)**; the prior 68 stay green.
+- New coverage: `Orders\CheckoutTest` (20) — happy path (pending order, total/commission snapshot, no tickets,
+  `quantity_sold` unchanged), group-bundle on/off, idempotent replay + different-body 409, **expired hold frees
+  inventory**, **sequential oversell (exactly N succeed)**, **cache-lock-held blocks checkout (409)**, mixed-currency
+  422, unpublished/cancelled event 422, closed sales window 422, soft-deleted ticket type 422, missing-key 422,
+  missing-profile 422, 401/403. `Orders\ReleaseExpiredHoldsTest` (4). `Unit\ResolveTicketPriceTest` (4).
+- **Concurrency caveat (documented):** the suite runs on **SQLite**, which serializes writes — the oversell test
+  proves the inventory math + lock ordering, but the `SELECT … FOR UPDATE` row-lock guarantee under true parallel
+  contention is the MySQL behaviour (verified by design; ADR-07). The cache-lock front is proven in isolation by the
+  lock-held test. A real parallel load test against MySQL is listed as a "with more time" item.
+
+**Next**
+- Day 3 slice 2: payment-service (StripeSim/PayPalSim + idempotency + signed webhooks), the core-api → payment
+  client in a queued job, and the webhook that flips the order to `paid`, converts holds → issued QR tickets,
+  increments `quantity_sold`, and writes the `ledger_entry`.
+
 ## 2026-06-29 — Day 2: Vendor KYC review flow + capacity invariant closed (core-api)
 **Maps to:** Day 2 — vendor onboarding & KYC (PLAN.md); CLAUDE.md §F Vendor onboarding & KYC, §J data protection.
 Also closes the flagged event-capacity gap from the CRUD session.

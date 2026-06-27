@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\EventController;
+use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\TicketTypeController;
 use App\Http\Controllers\Api\V1\VendorController;
 use App\Support\ApiResponse;
@@ -55,6 +56,11 @@ Route::middleware(['auth:sanctum', 'role:vendor', 'throttle:write'])->group(func
 // --- Vendor self-service: submit own KYC for review ---
 Route::middleware(['auth:sanctum', 'role:vendor', 'throttle:write'])->group(function () {
     Route::post('vendor/kyc', [VendorController::class, 'submitKyc'])->name('vendor.kyc.submit');
+});
+
+// --- Attendee checkout (order + 15-min holds, idempotent) ---
+Route::middleware(['auth:sanctum', 'role:attendee', 'throttle:checkout'])->group(function () {
+    Route::post('orders', [OrderController::class, 'store'])->name('orders.store');
 });
 
 // --- Authenticated (any role) ---

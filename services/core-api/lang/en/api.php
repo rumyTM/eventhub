@@ -52,6 +52,18 @@ return [
         'already_submitted' => 'KYC has already been submitted and is awaiting review.',
     ],
 
+    'orders' => [
+        'created' => 'Order created. Your tickets are held for 15 minutes — complete payment to confirm.',
+        'idempotency_key_required' => 'An Idempotency-Key header is required for checkout.',
+        'idempotency_conflict' => 'This Idempotency-Key was already used with a different request.',
+        'tickets_unavailable' => 'Only :available ticket(s) remain (you requested :requested).',
+        'mixed_currency' => 'All tickets in one order must share the same currency.',
+        'event_not_purchasable' => 'Tickets for this event are not on sale.',
+        'sales_window_closed' => 'The sales window for this ticket type is not open.',
+        'lock_unavailable' => 'This ticket type is busy; please retry in a moment.',
+        'attendee_profile_required' => 'Your attendee profile is incomplete; please contact support.',
+    ],
+
     'ticket_types' => [
         'listed' => 'Ticket types retrieved.',
         'retrieved' => 'Ticket type retrieved.',

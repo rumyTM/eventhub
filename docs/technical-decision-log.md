@@ -316,6 +316,32 @@
   because settlement only happens after the event completes (ADR-20) we usually **haven't paid the vendor out yet**
   anyway, so in the common case the negative balance is netted before any real money left the platform.
 
+### ADR-24: Checkout mechanics — Idempotency-Key via header, group-bundle pricing, cart normalization
+- Decision (a cluster of small checkout choices that build on ADR-07/09):
+  - **Idempotency-Key is an HTTP header**, *required* (missing → 422), folded into validated data so the same key
+    always maps to the same order. A replay with the same body returns the **same order** (no new holds/order); a
+    replay with a **different body → 409**. The DB `idempotency_keys.key` + `orders.idempotency_key` unique indexes
+    are the backstop, and a concurrent duplicate that loses the insert race is caught and resolved as a replay.
+  - **Group-bundle pricing rule:** if a ticket type has `group_size` set and the line `quantity >= group_size`,
+    **every unit on the line** is priced at `round(price × (1 − group_discount))` (half-up, integer poisha), not just
+    whole multiples of `group_size`; otherwise `unit_price = price`. Implemented as a pure `ResolveTicketPrice` action
+    so it's unit-testable without a DB.
+  - **Duplicate cart lines are merged** (summed) per `ticket_type_id` before the availability check, so two lines of
+    the same type can't slip past the check by being counted separately; ids are sorted for deterministic lock order.
+  - **Cache-lock contention → 409** (`LockUnavailableException`): if the short-lived per-`ticket_type` lock can't be
+    acquired within a few seconds, fail fast and let the client retry, rather than queueing indefinitely.
+- Alternatives: idempotency key in the body (easy to forget / collide with payload); discount only on exact multiples
+  of group_size (surprising for buyers); failing checkout on duplicate lines (worse UX than merging).
+- Why: a required header key is the conventional, hard-to-misuse contract for money endpoints and keeps the dedupe
+  identity out of the business payload. Merging lines + sorted lock acquisition removes two subtle correctness traps
+  (double-spend within one cart, lock-order deadlock). Surfacing lock contention as a retryable 409 keeps request
+  latency bounded. The pricing rule is written down exactly because "discount applies to the whole line once the
+  threshold is met" is a product choice, not an obvious default.
+- Trade-off: returning the same order on replay uses HTTP **201 both times** (not 200-on-replay) — the client treats
+  the order resource identically, so I favoured one predictable path over a status-code distinction. Holding multiple
+  cache locks across the cart's transaction slightly raises contention on multi-type carts; acceptable because the
+  locks are short-lived and the DB row lock (not the cache lock) is the correctness guard (ADR-07).
+
 ---
 
 ## Trade-offs made due to the 5-day constraint
