@@ -45,6 +45,11 @@ Seed data creates demo `admin`, `vendor`, and `attendee` accounts (credentials p
 never real). API documentation (Postman/OpenAPI) is in [`docs/`](./docs) once generated.
 
 ### Local / Laragon fallback (no Docker)
+> **PHP 8.4+ required for the local path.** Laravel 11's floor is PHP 8.2, but the committed `composer.lock`
+> resolves Symfony 8.x components that require `php >= 8.4.1`, so `composer install` against this lock needs
+> **PHP 8.4.1 or newer** (8.2/8.3 will fail with a platform error). The Docker image (`php:8.4-cli`) already
+> matches this, so the recommended docker-compose path needs no local PHP at all.
+
 Run MySQL + Redis locally and create the three databases (`eventhub_core`, `eventhub_payments`,
 `eventhub_notifications`). Then per service:
 

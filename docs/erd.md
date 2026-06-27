@@ -172,6 +172,7 @@ erDiagram
         bigint commission
         bigint net
         bigint reserved_refund "minor units, reserved vs in-window refunds"
+        string currency "ISO 4217"
         enum status "pending|approved|processing|paid|failed"
         string batch_id
         string idempotency_key UK

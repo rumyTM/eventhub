@@ -131,6 +131,10 @@ Seed data creates admin / vendor / attendee logins (see `WORKLOG.md` / seeder ou
 > **Local / Laragon fallback** (no Docker): documented in the root `README.md`. Run MySQL + Redis locally, then in
 > each service `composer install && php artisan migrate --seed && php artisan serve --port=<port>` (Laravel) or
 > `npm install && npm run dev` (Node/Next). docker-compose is the supported path; local is the fallback.
+>
+> **PHP version:** Laravel 11's floor is PHP 8.2, but the committed `composer.lock` pulls Symfony 8.x
+> (`php >= 8.4.1`), so the local path needs **PHP 8.4.1+** (8.2/8.3 fail `composer install`). The Docker image is
+> `php:8.4-cli`, so the docker-compose path needs no local PHP.
 
 ---
 

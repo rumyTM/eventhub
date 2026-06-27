@@ -1,4 +1,8 @@
-# core-api — EventHub Main Application (Laravel 11, PHP 8.2+)
+# core-api — EventHub Main Application (Laravel 11, PHP 8.4+)
+
+> **Runtime:** Laravel's floor is PHP 8.2, but the committed `composer.lock` resolves Symfony 8.x (`php >= 8.4.1`),
+> so this service requires **PHP 8.4.1+**. Docker uses `php:8.4-cli`; the local path needs 8.4+ (8.2/8.3 fail
+> `composer install`). See root `CLAUDE.md` §5.
 
 > Central orchestrator. Owns events, ticket types, orders/holds, attendees, vendors/KYC, payouts, admin, auth,
 > and all cron jobs. Talks to payment-service over REST (shared secret + idempotency) and publishes notification

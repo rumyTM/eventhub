@@ -6,6 +6,109 @@
 
 ---
 
+## 2026-06-29 — Day 2: Document PHP 8.4 runtime requirement (docs only)
+**Maps to:** Day 2 setup-instruction accuracy. No code/migrations touched.
+
+**What changed**
+- Made the **PHP 8.4.1+** requirement explicit wherever setup is described, since the committed `composer.lock`
+  resolves Symfony 8.x (`php >= 8.4.1`) even though `composer.json` allows `^8.2`. Chose to keep 8.4 and document it
+  (vs. re-locking to Symfony ^7 for true 8.2 portability).
+  - `README.md` — note in the Local/Laragon fallback section (8.2/8.3 fail `composer install`; docker `php:8.4-cli`
+    needs no local PHP).
+  - `CLAUDE.md` §5 — added a "PHP version" line to the run instructions.
+  - `services/core-api/CLAUDE.md` — header `PHP 8.2+ → 8.4+` plus a runtime note.
+- `docs/erd.md` — added `payouts.currency` to the ERD so the diagram matches the migration (honors "always record
+  currency"; deviation was flagged in the schema task).
+
+**Verification**
+- Docs-only; no tests/formatter. Confirmed `composer.lock` contains `symfony/*` entries requiring `php >= 8.4.1`
+  and the two Dockerfiles already pin `php:8.4-cli`.
+
+## 2026-06-29 — Day 2: Docker verification (schema migrates on docker MySQL)
+**Maps to:** Day 2 — "docker-compose boots mysql + redis + both Laravel services; health checks pass" (PLAN.md).
+Proves the already-verified migrations apply on the **docker `mysql` host**, not just local Laragon.
+
+**What changed (docker/.env wiring only — migrations untouched)**
+- **`services/core-api/Dockerfile` + `services/payment-service/Dockerfile`:** bumped base image `php:8.3-cli →
+  `php:8.4-cli`. The committed `composer.lock` was resolved on PHP 8.4, so `symfony/*` v8.1.1 (requires
+  `php >=8.4.1`) failed `composer install` on the 8.3 image. `composer.json` allows `^8.2`; Laravel 11 supports 8.4.
+- **`docker-compose.yml`:** mysql host-port mapping `"3306:3306"` → `"${MYSQL_HOST_PORT:-3307}:3306"` to avoid a
+  clash with the host's Laragon MySQL on 3306. Inter-container traffic is unaffected (core-api always reaches
+  `mysql:3306` on the compose network); only the host-side published port changed.
+
+**Verification (docker)**
+- `docker compose up -d --build mysql redis core-api` → `docker compose ps`: **mysql healthy, redis healthy,
+  core-api up** (core-api has no healthcheck defined, so it reports "Up", which is its healthy state). Ports:
+  mysql `3307→3306`, redis `6379`, core-api `8000`.
+- `docker compose exec core-api php artisan migrate:fresh` → **24/24 migrations DONE, 0 errors** (4 base + 20
+  domain) against the docker host. Tinker confirmed `host=mysql db=eventhub_core server_version=8.0.46
+  migrations=24 tables=30` — i.e. the MySQL 8.0 container, not Laragon.
+- `GET http://localhost:8000/api/v1/health` → **HTTP 200**, envelope
+  `{"success":true,"data":{"service":"core-api","status":"ok"},"message":"core-api is healthy.","errors":null}`,
+  with a `Log-Trace-ID` response header (trace middleware working).
+
+**Next**
+- Same as below (Day 2 continuation): repositories + Sanctum auth + `/crud Event`/`TicketType` + KYC endpoints +
+  feature tests. When `payment-service` is scaffolded, bring it up too (Dockerfile already on php:8.4).
+
+## 2026-06-29 — Day 2: Domain schema + Eloquent models (core-api)
+**Maps to:** Day 2 — Scaffold + schema + core CRUD (PLAN.md) — the migrations/models slice.
+
+**What changed**
+- **20 domain migrations** added under `services/core-api/database/migrations/` (`2026_06_29_100001..100020`),
+  one per entity group, in FK-dependency order: `vendors`, `attendees`, `kyc_documents`, `events`,
+  `ticket_types`, `orders`, `order_items`, `ticket_holds`, `tickets`, `payments`, `refunds`, `payouts`,
+  `payout_items`, `disputes`, `waitlist_entries`, `ledger_entries`, `idempotency_keys`, `settings`,
+  `event_reminders`, `sales_reports`. `users` already carried ULID + `role` + soft-deletes from the scaffold
+  (left as-is). All PKs are ULIDs (`$table->ulid('id')->primary()`); FKs use `foreignUlid`.
+- **All ERD "Indexing strategy" indexes created with their exact names** (e.g. `idx_events_status_starts_at`,
+  `idx_holds_type_status`, `idx_holds_status_expires_at`, `idx_ledger_vendor_created`, `idx_ledger_subject`,
+  `idx_waitlist_type_status_pos`, `idx_payouts_vendor_status`, plus the `unique(...)` guards on
+  `orders/payments/payouts.idempotency_key`, `tickets.qr_code`, `event_reminders(event_id,type)`,
+  `sales_reports(report_date,vendor_id)`, `settings.key`, `idempotency_keys.key`). Named single-column FK
+  indexes are created *before* the FK so one index backs both (no duplicates).
+- **20 Eloquent models** created (+ `User` updated): `HasUlids` everywhere; `casts()` for every enum
+  (reusing `app/Enums/*`), money as `integer` minor units, rates as `decimal:4`, JSON/array, and datetimes.
+  Relationships match the ERD (incl. the second `users→vendors` reviewer link, polymorphic-subject note on
+  `LedgerEntry`, `Refund hasOne Dispute`). `$fillable` set explicitly on every model (no mass-assignment holes).
+- **PII handling wired into the models:** `vendors.tin_bin`, `representative_nid`, `webhook_secret` →
+  `encrypted`; `payout_account` → `encrypted:array`; `kyc_documents.storage_path` → `encrypted`; all added to
+  `$hidden`. Values used `[PLACEHOLDER]` only — no real secrets/PII.
+- **Soft-delete policy applied exactly per ERD:** `SoftDeletes` on `users/vendors/attendees/events/`
+  `ticket_types/kyc_documents` only. Financial/issued-artifact tables (`orders`, `payments`, `refunds`,
+  `payouts`, `payout_items`, `ledger_entries`, `tickets`, `disputes`, `event_reminders`) are never deleted.
+- **`ledger_entries` is strictly append-only:** `created_at` only (no `updated_at` column), model sets
+  `const UPDATED_AT = null`; `amount` is a SIGNED `bigInteger`. `tickets` has `$timestamps = false` (no
+  timestamp columns per ERD). **Vendor balance is derived** via `Vendor::balance()` = `SUM(ledger.amount)` —
+  no balance column exists.
+- **Config:** added `format` (Pint) and `test` scripts to `services/core-api/composer.json` (the scaffold
+  hadn't defined `composer format` referenced by CLAUDE.md).
+
+**Decisions (this session)**
+- **Money columns are integer minor units** (`unsignedBigInteger`, signed `bigInteger` only for the ledger),
+  rates `decimal(5,4)`; every money/rate table also stores `currency` (default `BDT`) — consistent with the
+  poisha convention. *Note:* added `payouts.currency` (the ERD table omitted it) to honour the "always record
+  currency" rule.
+- **Named-index-before-FK pattern** so a single named index backs the FK (avoids MySQL's duplicate auto-index).
+- **`sales_reports` NULL-platform-row caveat** left to app logic (`updateOrCreate`), per ERD — the composite
+  unique only guards vendor-scoped rows in MySQL.
+- **`idempotency_key` columns are non-null unique** (every order/charge/payout carries one).
+
+**Verification**
+- `php artisan migrate:fresh` applies **all 24 migrations** (4 base + 20 domain) cleanly against the dev DB.
+  (Local run used Laragon MySQL on `127.0.0.1`; the committed `.env` targets the docker `mysql` host.)
+- `composer format` (Pint) clean — 26 files auto-fixed (import ordering / factory-docblock FQCN), 0 remaining.
+- **Tinker smoke test** (rolled back) confirmed: ULID PKs are 26 chars; `role`/`kyc_status` cast to enums;
+  `tin_bin` is ciphertext at rest and decrypts back; `payout_account` round-trips as an array; `user->vendor`
+  relation resolves; `Vendor::balance()` goes `0 → 4250` after sale(+5000)/commission(−750) ledger rows; the
+  ledger row has `created_at` and **no** `updated_at`.
+
+**Next**
+- Continue **Day 2**: `RepositoryServiceProvider` bindings + repositories for `Event`/`TicketType`; Sanctum
+  auth endpoints (register/login/logout/me) + `EnsureRole`-guarded route groups; `/crud Event`,
+  `/crud TicketType` with ownership + lifecycle rules; vendor onboarding + KYC status endpoints. Then the
+  required feature tests. Add model **factories** (referenced in `@use HasFactory` docblocks) when writing tests.
+
 ## 2026-06-28 — Day 1: Plan & architect (planning docs filled)
 **Maps to:** Day 1 — Plan & architect (PLAN.md). Also initialized the git repo (was uninitialized).
 
