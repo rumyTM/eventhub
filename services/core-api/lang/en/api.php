@@ -13,6 +13,13 @@ return [
         'ok' => 'core-api is healthy.',
     ],
 
+    'validation' => [
+        'timezone' => 'The timezone must be a valid IANA time zone identifier.',
+        'ends_after_starts' => 'The end time must be after the start time.',
+        'sales_ends_after_starts' => 'The sales end time must be after the sales start time.',
+        'group_discount_fraction' => 'The group discount must be a fraction between 0 and 1 (e.g. 0.10).',
+    ],
+
     'auth' => [
         'registered' => 'Registration successful.',
         'logged_in' => 'Login successful.',
@@ -24,6 +31,8 @@ return [
     ],
 
     'events' => [
+        'listed' => 'Events retrieved.',
+        'retrieved' => 'Event retrieved.',
         'created' => 'Event created.',
         'updated' => 'Event updated.',
         'deleted' => 'Event deleted.',
@@ -34,9 +43,12 @@ return [
     ],
 
     'ticket_types' => [
+        'listed' => 'Ticket types retrieved.',
+        'retrieved' => 'Ticket type retrieved.',
         'created' => 'Ticket type created.',
         'updated' => 'Ticket type updated.',
         'deleted' => 'Ticket type deleted.',
         'capacity_exceeded' => 'Ticket type inventory would exceed the event capacity.',
+        'quantity_below_sold' => 'Quantity cannot be lower than the number already sold.',
     ],
 ];

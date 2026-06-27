@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\EventController;
+use App\Http\Controllers\Api\V1\TicketTypeController;
 use App\Support\ApiResponse;
 use Illuminate\Support\Facades\Route;
 
@@ -23,6 +25,30 @@ Route::prefix('auth')->name('auth.')->group(function () {
         ->middleware('throttle:auth')->name('register');
     Route::post('login', [AuthController::class, 'login'])
         ->middleware('throttle:auth')->name('login');
+});
+
+// --- Events + ticket types: public reads (published only; owner/admin see more — enforced in policy) ---
+Route::middleware('throttle:read')->group(function () {
+    Route::get('events', [EventController::class, 'index'])->name('events.index');
+    Route::get('events/{event}', [EventController::class, 'show'])->name('events.show');
+    Route::get('events/{event}/ticket-types', [TicketTypeController::class, 'index'])
+        ->name('events.ticket-types.index');
+    Route::get('events/{event}/ticket-types/{ticketType}', [TicketTypeController::class, 'show'])
+        ->scopeBindings()->name('events.ticket-types.show');
+});
+
+// --- Events + ticket types: vendor writes (ownership enforced in policy) ---
+Route::middleware(['auth:sanctum', 'role:vendor', 'throttle:write'])->group(function () {
+    Route::post('events', [EventController::class, 'store'])->name('events.store');
+    Route::put('events/{event}', [EventController::class, 'update'])->name('events.update');
+    Route::delete('events/{event}', [EventController::class, 'destroy'])->name('events.destroy');
+
+    Route::post('events/{event}/ticket-types', [TicketTypeController::class, 'store'])
+        ->name('events.ticket-types.store');
+    Route::put('events/{event}/ticket-types/{ticketType}', [TicketTypeController::class, 'update'])
+        ->scopeBindings()->name('events.ticket-types.update');
+    Route::delete('events/{event}/ticket-types/{ticketType}', [TicketTypeController::class, 'destroy'])
+        ->scopeBindings()->name('events.ticket-types.destroy');
 });
 
 // --- Authenticated (any role) ---

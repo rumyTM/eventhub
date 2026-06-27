@@ -42,6 +42,17 @@ return [
             'synchronous' => null,
         ],
 
+        // Hermetic test connection — database is hardcoded to :memory:, NOT read from DB_DATABASE.
+        // Docker-compose injects DB_DATABASE into $_SERVER, which beats phpunit.xml's <env> (Laravel
+        // reads $_SERVER before $_ENV), so tests must not depend on that env var. phpunit.xml selects
+        // this connection via DB_CONNECTION=sqlite_testing.
+        'sqlite_testing' => [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+            'foreign_key_constraints' => true,
+        ],
+
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),

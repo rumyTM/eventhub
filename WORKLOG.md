@@ -6,6 +6,63 @@
 
 ---
 
+## 2026-06-29 — Day 2: Event + TicketType CRUD (core-api)
+**Maps to:** Day 2 — `/crud Event`, `/crud TicketType` with ownership + lifecycle (PLAN.md); CLAUDE.md §A layering,
+§F Event lifecycle / Ticket types.
+
+**What changed**
+- **Fixed the dangling binding (STEP 0):** `RepositoryServiceProvider` bound `EventRepositoryInterface` /
+  `TicketTypeRepositoryInterface` to classes that didn't exist. Created the Contracts + Eloquent impls
+  (`EventRepository`: `paginatePublished`/`paginateForVendor`/`paginateAll`/`create`/`update`/`delete`/
+  `lockForUpdate`; `TicketTypeRepository`: `paginateForEvent`/`sumQuantityTotalForEvent`/`create`/`update`/`delete`)
+  mirroring the User/Vendor/Attendee pattern — bindings now resolve.
+- **Event CRUD** (Controller→Service→Repository): `EventController` (index/show/store/update/destroy),
+  `EventService` (lifecycle + listing scope), `Store/UpdateEventRequest`, `EventResource` (status as
+  `{value,label}`, datetimes UTC ISO-8601 + IANA `timezone`, `ticket_types` via `whenLoaded`).
+- **TicketType CRUD** (nested under an event): `TicketTypeController`, `TicketTypeService`,
+  `Store/UpdateTicketTypeRequest`, `TicketTypeResource`. Routes use **scoped bindings** so a ticket type must belong
+  to the `{event}` (else 404).
+- **Ownership via policies** (`EventPolicy`, `TicketTypePolicy`, auto-discovered): a vendor may only mutate events
+  reachable through its own `vendor_id`; admin reads/writes all; **public (unauthenticated) index/show is limited to
+  published/ongoing events** (drafts → 403 for non-owners). Public read routes carry no `auth` middleware, so the
+  optional bearer user is resolved via `auth('sanctum')->user()` and authorized with `Gate::forUser(...)`.
+- **Event lifecycle** (`EventStatus::canTransitionTo`): transitions enforced in `EventService`; illegal change →
+  `InvalidEventTransitionException` (**409**, never a silent update). Publishing additionally requires the vendor's
+  KYC to be `verified` → `VendorNotVerifiedException` (**422**).
+- **Capacity invariant** (the critical one): `SUM(ticket_types.quantity_total) <= events.capacity` enforced on
+  create **and** update **inside a `DB::transaction` under `Event::lockForUpdate()`** (re-read the row + recompute the
+  sum in-txn) so concurrent edits can't bypass it → `EventCapacityExceededException` (**422**). Also forbids
+  `quantity_total < quantity_sold` → `QuantityBelowSoldException` (**422**).
+- **Validation:** IANA timezone (`Rule::in(DateTimeZone::listIdentifiers())`), `starts_at < ends_at`, `capacity >= 1`;
+  ticket-type `price` integer minor units + 3-char `currency`, `group_discount` required-with `group_size` and a
+  fraction in `[0,1)` (`min:0`,`lt:1`), `sales_start < sales_end`.
+- **Infra:** added `read` (120/min) + `write` (40/min) named throttle limiters; added `AuthorizesRequests` to the
+  base `Controller` (Laravel 11 ships it bare); new lang keys (`events.listed/retrieved`,
+  `ticket_types.listed/retrieved/quantity_below_sold`, a `validation.*` group).
+- **Factories:** `EventFactory` (states `draft/published/ongoing/completed/cancelled`, `forVendor()`; defaults to a
+  **verified** vendor so events are publishable) and `TicketTypeFactory` (states `vip/earlyBird/groupBundle`,
+  `forEvent()`). No secrets/PII — `[PLACEHOLDER]` only.
+
+**Decisions (this session)**
+- **Invalid lifecycle transition → 409** (state conflict); **publish-without-verified-KYC → 422** (unmet business
+  precondition); **capacity / below-sold → 422**. All are domain `HttpException`s flowing through the global handler.
+- **Vendor's own index returns all their events; public index returns published only; admin all.** Show allows
+  public for published/ongoing; drafts/terminal states are owner/admin-only.
+- **Event-capacity reduction below the existing ticket-type sum is NOT yet blocked on event update** (the invariant
+  is enforced on the ticket-type side per the task). *Flagged as a follow-up* — lowering `events.capacity` could
+  momentarily violate the sum; worth a guard when event update grows.
+
+**Verification**
+- `composer format` (Pint) — clean.
+- `php artisan test` (sqlite `:memory:`, `RefreshDatabase`) → **53 passed (140 assertions)**; Auth suite still green.
+  New: `Events\EventTest` (20) + `Events\TicketTypeTest` (18) cover happy/422/401/403(cross-vendor)/404 per action,
+  invalid lifecycle transition (409), publish KYC gate, public index hides non-published, capacity-exceeded on
+  create+update, and quantity-below-sold.
+
+**Next**
+- Vendor onboarding/KYC submission + admin review endpoints; then Day 3 (checkout holds + distributed lock,
+  payment-service, webhooks). Seeder to provision the demo admin + sample vendor/attendee/events.
+
 ## 2026-06-29 — Day 2: Token auth + role onboarding (core-api)
 **Maps to:** Day 2 — "Auth: Sanctum, `role` enum, `EnsureRole` middleware, registration/login" (PLAN.md);
 CLAUDE.md §F Roles & auth.

@@ -1,0 +1,77 @@
+<?php
+
+namespace App\Services\Events;
+
+use App\Enums\EventStatus;
+use App\Exceptions\Events\InvalidEventTransitionException;
+use App\Exceptions\Events\VendorNotVerifiedException;
+use App\Models\Event;
+use App\Models\User;
+use App\Repositories\Contracts\EventRepositoryInterface;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+
+final class EventService
+{
+    public function __construct(
+        private readonly EventRepositoryInterface $events,
+    ) {}
+
+    /**
+     * Listing scope by audience: admin → all; authenticated vendor → own events (all statuses);
+     * everyone else (guests/attendees) → the public published catalog.
+     */
+    public function list(?User $user, int $perPage): LengthAwarePaginator
+    {
+        if ($user?->isAdmin()) {
+            return $this->events->paginateAll($perPage);
+        }
+
+        if ($user?->isVendor() && $user->vendor !== null) {
+            return $this->events->paginateForVendor($user->vendor->id, $perPage);
+        }
+
+        return $this->events->paginatePublished($perPage);
+    }
+
+    /** Create a draft event owned by the acting vendor. */
+    public function create(User $vendorUser, array $data): Event
+    {
+        $data['vendor_id'] = $vendorUser->vendor->id;
+        $data['status'] = EventStatus::Draft->value;
+
+        return $this->events->create($data);
+    }
+
+    /**
+     * Apply a partial update. If `status` changes, the transition must be legal; publishing additionally
+     * requires the owning vendor's KYC to be verified.
+     */
+    public function update(Event $event, array $data): Event
+    {
+        if (array_key_exists('status', $data)) {
+            $this->guardStatusTransition($event, EventStatus::from($data['status']));
+        }
+
+        return $this->events->update($event, $data);
+    }
+
+    public function delete(Event $event): void
+    {
+        $this->events->delete($event);
+    }
+
+    private function guardStatusTransition(Event $event, EventStatus $target): void
+    {
+        if ($target === $event->status) {
+            return; // no-op
+        }
+
+        if (! $event->status->canTransitionTo($target)) {
+            throw new InvalidEventTransitionException;
+        }
+
+        if ($target === EventStatus::Published && ! $event->vendor->kyc_status->canTransact()) {
+            throw new VendorNotVerifiedException;
+        }
+    }
+}

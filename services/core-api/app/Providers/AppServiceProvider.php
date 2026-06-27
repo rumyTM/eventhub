@@ -37,6 +37,16 @@ class AppServiceProvider extends ServiceProvider
             ->by($request->ip())
             ->response($tooMany));
 
+        // Public/catalog reads — generous; keyed by user when authenticated, else IP.
+        RateLimiter::for('read', fn (Request $request) => Limit::perMinute(120)
+            ->by($byUserOrIp($request))
+            ->response($tooMany));
+
+        // Authenticated writes (event/ticket-type CRUD) — tighter.
+        RateLimiter::for('write', fn (Request $request) => Limit::perMinute(40)
+            ->by($byUserOrIp($request))
+            ->response($tooMany));
+
         RateLimiter::for('checkout', fn (Request $request) => Limit::perMinute(20)
             ->by($byUserOrIp($request))
             ->response($tooMany));

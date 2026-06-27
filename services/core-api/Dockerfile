@@ -10,8 +10,16 @@ RUN apt-get update && apt-get install -y git unzip libzip-dev \
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /app
+
+# Install dependencies FIRST, keyed only on the composer manifests, so this layer (the slow,
+# network-dependent step) is cached and re-runs only when composer.json/lock change — not on every
+# app-code edit. --no-scripts/--no-autoloader because artisan package:discover needs the full app.
+COPY composer.json composer.lock ./
+RUN composer install --no-interaction --prefer-dist --no-progress --no-scripts --no-autoloader
+
+# Now copy the app and finish the autoloader (this also runs post-autoload-dump → package:discover).
 COPY . /app
-RUN composer install --no-interaction --prefer-dist --no-progress
+RUN composer dump-autoload --optimize --no-interaction
 
 # APP_PORT is provided by docker-compose (8000 core-api / 8001 payment-service).
 CMD php artisan serve --host=0.0.0.0 --port=${APP_PORT:-8000}

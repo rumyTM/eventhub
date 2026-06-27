@@ -1,0 +1,54 @@
+<?php
+
+namespace App\Http\Requests\TicketTypes;
+
+use App\Enums\TicketKind;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class StoreTicketTypeRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true; // ability checked in the controller via the TicketTypePolicy
+    }
+
+    /**
+     * Money: `price` is integer minor units (poisha) + currency. A group bundle requires a
+     * `group_discount` fraction in [0, 1). The capacity invariant is enforced in the service (in a txn).
+     *
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'kind' => ['required', 'string', Rule::in(array_column(TicketKind::cases(), 'value'))],
+            'price' => ['required', 'integer', 'min:0'],
+            'currency' => ['required', 'string', 'size:3'],
+            'quantity_total' => ['required', 'integer', 'min:1'],
+            'group_size' => ['nullable', 'integer', 'min:2'],
+            'group_discount' => ['nullable', 'required_with:group_size', 'numeric', 'min:0', 'lt:1'],
+            'sales_start' => ['nullable', 'date'],
+            'sales_end' => ['nullable', 'date', 'after:sales_start'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'group_discount.lt' => __('api.validation.group_discount_fraction'),
+            'group_discount.required_with' => __('api.validation.group_discount_fraction'),
+            'sales_end.after' => __('api.validation.sales_ends_after_starts'),
+        ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->currency)) {
+            $this->merge(['currency' => mb_strtoupper($this->currency)]);
+        }
+    }
+}
