@@ -6,6 +6,55 @@
 
 ---
 
+## 2026-06-29 — Day 2: Token auth + role onboarding (core-api)
+**Maps to:** Day 2 — "Auth: Sanctum, `role` enum, `EnsureRole` middleware, registration/login" (PLAN.md);
+CLAUDE.md §F Roles & auth.
+
+**What changed**
+- **Auth endpoints under `/api/v1/auth`** (Controller→Service→Repository, FormRequest validation, `ApiResponse`
+  envelope): `POST register`, `POST login` (both `throttle:auth` — the 10/min limiter), `POST logout`,
+  `GET me` (both `auth:sanctum`). Tokens are Sanctum personal access tokens.
+- **`AuthService`** holds the transaction boundary: `register()` creates the `user` **and** its matching
+  `vendors`/`attendees` profile row in one `DB::transaction`, then issues a token; `login()` verifies via
+  `Hash::check` and throws `InvalidCredentialsException` (→ 401) without revealing which field failed;
+  `logout()` revokes only the current access token; token issuance centralised.
+- **Repository layer:** `UserRepository` (`create`, `findByEmail`), `VendorRepository`/`AttendeeRepository`
+  (`createForUser`) behind interfaces, bound in `RepositoryServiceProvider` (alongside the pre-declared
+  Event/TicketType bindings). Services depend on interfaces only.
+- **HTTP layer:** `RegisterRequest` (name/email-unique/password-confirmed+`Password::defaults()`/role;
+  `business_name` required for vendors; email normalised), `LoginRequest`; `UserResource` (+ `VendorResource`,
+  `AttendeeResource`) — enums emitted as `{value,label}`, ISO-8601 timestamps, profile via `whenLoaded`.
+- **Factories (deferred from the schema task):** `UserFactory` gained a `role` default + `admin()`/`vendor()`/
+  `attendee()` states; new `VendorFactory` (with `verified()`/`rejected()`) and `AttendeeFactory`. All KYC/PII
+  fields use demo-safe `[PLACEHOLDER]` values — no real NID/TIN/bank data. These back the auth tests and seeders.
+- **Config wiring:** added the **`sanctum` guard** to `config/auth.php` (the scaffold only had `web`, so
+  `auth:sanctum` would have thrown "guard not defined"); set `phpunit.xml` to `sqlite :memory:` so the suite runs
+  without an external DB. Added an `admin/ping` route (role-gated) as the placeholder real admin endpoints join.
+- **Lang:** added `auth.me`, `auth.role_not_self_assignable`, `auth.business_name_required` to `lang/en/api.php`.
+
+**Decisions (this session)**
+- **Public registration is limited to `vendor`/`attendee`; `admin` is rejected at validation (422).** Admins are
+  provisioned by seeder/console only — a public endpoint that mints admins is a privilege-escalation hole. The
+  task listed admin among roles, but security-first wins; the `EnsureRole` test uses a factory-made admin.
+  *(Flag: confirm the seeder provisions the demo admin.)*
+- **`VendorResource` deliberately omits all encrypted KYC/PII** (`tin_bin`, `representative_nid`,
+  `payout_account`, `webhook_secret`); those are never returned by the API. Admin KYC review will use dedicated,
+  audited endpoints + signed URLs.
+- **Login failures return a single generic 401** (same message for unknown-email and wrong-password) to avoid
+  user-enumeration.
+
+**Verification**
+- `composer format` (Pint) — **clean** (`{"result":"passed"}`).
+- `php artisan test --filter=Auth` → **15 passed (64 assertions)**: register happy paths (attendee + vendor with
+  profile/pending-KYC), 422 (missing fields, duplicate email, vendor without business_name, admin-role rejected),
+  401 (wrong password, unknown email), `me` (auth + 401 when unauthenticated), logout revokes token, and
+  **`EnsureRole` blocks an attendee from `/admin/ping` (403)** while an admin gets 200.
+- Full suite `php artisan test` → **17 passed (66 assertions)**. Tests run on `sqlite :memory:` via `RefreshDatabase`.
+
+**Next**
+- `/crud Event` + `/crud TicketType` (ownership + lifecycle), vendor onboarding/KYC submission + admin review
+  endpoints, then their feature tests. Seeder to provision the demo admin + sample vendor/attendee logins.
+
 ## 2026-06-29 — Day 2: Document PHP 8.4 runtime requirement (docs only)
 **Maps to:** Day 2 setup-instruction accuracy. No code/migrations touched.
 

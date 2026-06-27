@@ -17,7 +17,10 @@ return [
         'registered' => 'Registration successful.',
         'logged_in' => 'Login successful.',
         'logged_out' => 'Logout successful.',
+        'me' => 'Authenticated user retrieved.',
         'invalid_credentials' => 'The provided credentials are incorrect.',
+        'role_not_self_assignable' => 'You may only register as a vendor or an attendee.',
+        'business_name_required' => 'A business name is required to register as a vendor.',
     ],
 
     'events' => [

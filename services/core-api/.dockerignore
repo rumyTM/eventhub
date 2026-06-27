@@ -2,4 +2,4 @@ vendor/
 node_modules/
 .git/
 storage/logs/*
-tests/
+# tests/ are intentionally kept in the image so `docker compose exec core-api php artisan test` works for reviewers.

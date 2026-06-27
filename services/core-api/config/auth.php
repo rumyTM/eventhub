@@ -42,6 +42,13 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // API token auth (Sanctum). The API is stateless — every /api/v1 route authenticates
+        // via a personal access token issued at login, not a session.
+        'sanctum' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
     ],
 
     /*

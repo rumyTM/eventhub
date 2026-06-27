@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\Role;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -18,7 +19,8 @@ class UserFactory extends Factory
     protected static ?string $password;
 
     /**
-     * Define the model's default state.
+     * Define the model's default state. Defaults to the attendee role; use the role states below
+     * (admin/vendor/attendee) to override.
      *
      * @return array<string, mixed>
      */
@@ -29,6 +31,7 @@ class UserFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
+            'role' => Role::Attendee,
             'remember_token' => Str::random(10),
         ];
     }
@@ -41,5 +44,20 @@ class UserFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
         ]);
+    }
+
+    public function admin(): static
+    {
+        return $this->state(fn (array $attributes) => ['role' => Role::Admin]);
+    }
+
+    public function vendor(): static
+    {
+        return $this->state(fn (array $attributes) => ['role' => Role::Vendor]);
+    }
+
+    public function attendee(): static
+    {
+        return $this->state(fn (array $attributes) => ['role' => Role::Attendee]);
     }
 }
