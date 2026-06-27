@@ -6,6 +6,57 @@
 
 ---
 
+## 2026-06-29 — Day 2: Vendor KYC review flow + capacity invariant closed (core-api)
+**Maps to:** Day 2 — vendor onboarding & KYC (PLAN.md); CLAUDE.md §F Vendor onboarding & KYC, §J data protection.
+Also closes the flagged event-capacity gap from the CRUD session.
+
+**What changed**
+- **STEP 0 — capacity invariant closed.** `EventService::update` now, when `capacity` is supplied, locks the event
+  row (`lockForUpdate`) and rejects a capacity below `SUM(ticket_types.quantity_total)` →
+  `CapacityBelowAllocatedException` (**422**). `EventService` now also depends on `TicketTypeRepositoryInterface`
+  for the in-txn sum. Lowering capacity to *exactly* the allocated sum is allowed.
+- **KYC state machine** on `KycStatus`: added `isTerminal()` and `canTransitionTo()` (pending → verified|rejected;
+  verified/rejected terminal). New `InvalidKycTransitionException` (**409**).
+- **Vendor repository** extended: `paginatePending` (uses `idx_vendors_kyc_status`, `submitted_at` not null),
+  `lockForUpdate`, `update`, `addDocument`.
+- **`VendorService`** (Controller→Service→Repository): `submitForReview` (txn under vendor lock; stamps
+  `submitted_at`, keeps `kyc_status=pending`, clears any prior `rejection_reason`, attaches `kyc_documents`;
+  re-submitting a *verified* profile → 409), `verify`/`reject` (txn under lock; guard `canTransitionTo`; stamp
+  `reviewed_by`/`reviewed_at`; reject records `rejection_reason`). All decisions are lock-guarded so two concurrent
+  admin reviews can't both flip a terminal status.
+- **`VendorPolicy`** (auto-discovered): `submitKyc` = vendor owns its own profile; `reviewAny`/`review` = admin only
+  (defence in depth behind the `role:admin` route middleware).
+- **HTTP:** `VendorController` (`submitKyc`, `pending`, `verify`, `reject`); `SubmitKycRequest`
+  (documents[].type ∈ trade_license|nid|bank_statement, storage_path is an opaque reference string),
+  `RejectVendorRequest` (reason required); `KycDocumentResource` (omits `storage_path`); `VendorResource` expanded
+  with review fields (`submitted_at`/`reviewed_at`/`rejection_reason`, `kyc_documents` via `whenLoaded`) — still
+  **never** exposes `tin_bin`/`representative_nid`/`payout_account`/`webhook_secret`.
+- **Routes:** `POST /vendor/kyc` (auth + role:vendor + throttle:write); `GET /admin/vendors`,
+  `POST /admin/vendors/{vendor}/verify`, `POST /admin/vendors/{vendor}/reject` (auth + role:admin). Lang keys added
+  under `events.capacity_below_allocated` + a new `vendors.*` group.
+
+**Decisions (this session)**
+- **Illegal KYC transition → 409** (state conflict), consistent with the event-lifecycle 409. **Capacity-below-
+  allocated → 422.**
+- **Submission allowed from pending or rejected (re-submit), blocked when verified.** A rejection is recoverable —
+  the vendor fixes documents and re-submits, which resets to pending and clears the old reason.
+- **PII/data-protection:** `storage_path` is a reference only (never raw bytes), encrypted at rest, and omitted from
+  every resource; document bytes would be served via short-lived signed URLs (not built yet). `contact_phone`/
+  `address` are returned to admins for review utility (not in the encrypted-secret set).
+
+**Verification**
+- `composer format` (Pint) — clean (`{"result":"passed"}`).
+- `php artisan test` → **68 passed (192 assertions)**; all 53 prior tests stay green. New: 2 capacity tests in
+  `EventTest` (reject-below-allocated, allow-to-exactly-allocated) + `Vendors\VendorKycTest` (13): submit happy/202,
+  submit validation 422 + 401, verified-can't-resubmit 409, vendor & attendee blocked from review (403), admin
+  list/verify/reject happy paths, reject-requires-reason 422, re-deciding terminal status 409, and two
+  data-protection tests asserting the encrypted PII fields + `storage_path` never appear in any response body.
+
+**Next**
+- Day 3: checkout (orders + holds, hybrid Redis+DB lock, 15-min expiry), payment-service (gateways + idempotency +
+  signed webhooks), and the required money/inventory unit tests. Seeder to provision the demo admin + sample
+  vendor/attendee/events. Signed-URL endpoint for KYC document retrieval.
+
 ## 2026-06-29 — Day 2: Event + TicketType CRUD (core-api)
 **Maps to:** Day 2 — `/crud Event`, `/crud TicketType` with ownership + lifecycle (PLAN.md); CLAUDE.md §A layering,
 §F Event lifecycle / Ticket types.

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\TicketTypeController;
+use App\Http\Controllers\Api\V1\VendorController;
 use App\Support\ApiResponse;
 use Illuminate\Support\Facades\Route;
 
@@ -51,6 +52,11 @@ Route::middleware(['auth:sanctum', 'role:vendor', 'throttle:write'])->group(func
         ->scopeBindings()->name('events.ticket-types.destroy');
 });
 
+// --- Vendor self-service: submit own KYC for review ---
+Route::middleware(['auth:sanctum', 'role:vendor', 'throttle:write'])->group(function () {
+    Route::post('vendor/kyc', [VendorController::class, 'submitKyc'])->name('vendor.kyc.submit');
+});
+
 // --- Authenticated (any role) ---
 Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('auth')->name('auth.')->group(function () {
@@ -58,11 +64,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('me', [AuthController::class, 'me'])->name('me');
     });
 
-    // --- Admin area (role-gated). Real admin endpoints join this group as they land. ---
+    // --- Admin area (role-gated). ---
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
         Route::get('ping', fn () => ApiResponse::success(
             data: ['area' => 'admin'],
             message: 'ok',
         ))->name('ping');
+
+        // KYC review queue.
+        Route::get('vendors', [VendorController::class, 'pending'])
+            ->middleware('throttle:read')->name('vendors.pending');
+        Route::post('vendors/{vendor}/verify', [VendorController::class, 'verify'])
+            ->middleware('throttle:write')->name('vendors.verify');
+        Route::post('vendors/{vendor}/reject', [VendorController::class, 'reject'])
+            ->middleware('throttle:write')->name('vendors.reject');
     });
 });

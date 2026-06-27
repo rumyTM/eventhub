@@ -40,6 +40,16 @@ return [
         'cancelled' => 'Event cancelled.',
         'invalid_transition' => 'That event status transition is not allowed.',
         'not_verified_vendor' => 'Only verified vendors can publish events.',
+        'capacity_below_allocated' => 'Capacity cannot be lower than the tickets already allocated.',
+    ],
+
+    'vendors' => [
+        'kyc_submitted' => 'KYC submitted for review.',
+        'pending_listed' => 'Vendors pending KYC review retrieved.',
+        'kyc_verified' => 'Vendor KYC verified.',
+        'kyc_rejected' => 'Vendor KYC rejected.',
+        'invalid_kyc_transition' => 'That KYC status change is not allowed.',
+        'already_submitted' => 'KYC has already been submitted and is awaiting review.',
     ],
 
     'ticket_types' => [

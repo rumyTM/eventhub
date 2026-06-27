@@ -3,6 +3,7 @@
 namespace Tests\Feature\Events;
 
 use App\Models\Event;
+use App\Models\TicketType;
 use App\Models\User;
 use App\Models\Vendor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -235,5 +236,35 @@ class EventTest extends TestCase
 
         $this->deleteJson("/api/v1/events/{$event->id}")->assertStatus(403);
         $this->assertDatabaseHas('events', ['id' => $event->id, 'deleted_at' => null]);
+    }
+
+    // --- capacity invariant on update (STEP 0) ---
+
+    public function test_update_rejected_when_capacity_drops_below_allocated_tickets(): void
+    {
+        [$user, $vendor] = $this->vendorUser();
+        $event = Event::factory()->forVendor($vendor)->create(['capacity' => 500]);
+        TicketType::factory()->forEvent($event)->create(['quantity_total' => 200]);
+        TicketType::factory()->forEvent($event)->create(['quantity_total' => 100]); // allocated = 300
+        Sanctum::actingAs($user);
+
+        $this->putJson("/api/v1/events/{$event->id}", ['capacity' => 200])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseHas('events', ['id' => $event->id, 'capacity' => 500]);
+    }
+
+    public function test_update_allows_lowering_capacity_to_exactly_allocated(): void
+    {
+        [$user, $vendor] = $this->vendorUser();
+        $event = Event::factory()->forVendor($vendor)->create(['capacity' => 500]);
+        TicketType::factory()->forEvent($event)->create(['quantity_total' => 200]);
+        TicketType::factory()->forEvent($event)->create(['quantity_total' => 100]); // allocated = 300
+        Sanctum::actingAs($user);
+
+        $this->putJson("/api/v1/events/{$event->id}", ['capacity' => 300])
+            ->assertOk()
+            ->assertJsonPath('data.event.capacity', 300);
     }
 }

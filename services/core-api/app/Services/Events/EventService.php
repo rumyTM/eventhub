@@ -3,17 +3,21 @@
 namespace App\Services\Events;
 
 use App\Enums\EventStatus;
+use App\Exceptions\Events\CapacityBelowAllocatedException;
 use App\Exceptions\Events\InvalidEventTransitionException;
 use App\Exceptions\Events\VendorNotVerifiedException;
 use App\Models\Event;
 use App\Models\User;
 use App\Repositories\Contracts\EventRepositoryInterface;
+use App\Repositories\Contracts\TicketTypeRepositoryInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 
 final class EventService
 {
     public function __construct(
         private readonly EventRepositoryInterface $events,
+        private readonly TicketTypeRepositoryInterface $ticketTypes,
     ) {}
 
     /**
@@ -44,12 +48,26 @@ final class EventService
 
     /**
      * Apply a partial update. If `status` changes, the transition must be legal; publishing additionally
-     * requires the owning vendor's KYC to be verified.
+     * requires the owning vendor's KYC to be verified. If `capacity` changes, it may not drop below the
+     * sum of the event's ticket-type allocations — checked under the event row lock.
      */
     public function update(Event $event, array $data): Event
     {
         if (array_key_exists('status', $data)) {
             $this->guardStatusTransition($event, EventStatus::from($data['status']));
+        }
+
+        if (array_key_exists('capacity', $data)) {
+            return DB::transaction(function () use ($event, $data): Event {
+                $locked = $this->events->lockForUpdate($event->id);
+                $allocated = $this->ticketTypes->sumQuantityTotalForEvent($locked->id);
+
+                if ((int) $data['capacity'] < $allocated) {
+                    throw new CapacityBelowAllocatedException;
+                }
+
+                return $this->events->update($event, $data);
+            });
         }
 
         return $this->events->update($event, $data);

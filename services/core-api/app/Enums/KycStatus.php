@@ -22,4 +22,19 @@ enum KycStatus: string
     {
         return $this === self::Verified;
     }
+
+    /** Verified/rejected are terminal admin decisions — they are not re-decided. */
+    public function isTerminal(): bool
+    {
+        return $this === self::Verified || $this === self::Rejected;
+    }
+
+    /** Legal admin review transitions: a pending vendor may be verified or rejected; terminal states are final. */
+    public function canTransitionTo(self $to): bool
+    {
+        return match ($this) {
+            self::Pending => in_array($to, [self::Verified, self::Rejected], true),
+            self::Verified, self::Rejected => false,
+        };
+    }
 }
