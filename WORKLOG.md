@@ -6,6 +6,80 @@
 
 ---
 
+## 2026-06-29 — Day 3 (slice 2 · Chunk B): payment-service charge endpoint + transactions ledger + signed webhook
+**Maps to:** Day 3 — payment-service `POST /payments` + webhook callback (PLAN.md); payment-service `CLAUDE.md`
+§C/§E/§G/§F/§H; ADR-09 (idempotency), ADR-10 (shared-secret bearer + HMAC webhook), ADR-13 (append-only ledger).
+**Chunk B of the 5-chunk slice; A done, C–E upcoming.**
+
+**What changed (`services/payment-service`)**
+- **`POST /api/v1/payments`** behind the `service.token` shared-secret middleware + a new `throttle:payments`
+  named limiter — **no public access**. Thin `PaymentController@store` → `ChargeService` → `PaymentResource`
+  (201 `pending`). `CreatePaymentRequest` validates `order_id` (string), `gateway` (`Rule::in` from
+  `Gateway::cases()`), `amount` (integer `min:1` — minor units, never float/0), `currency` (size:3), and folds
+  the **`Idempotency-Key` header** into validated data → missing key is a clean **422** (mirrors core-api's
+  `CheckoutRequest`). `PaymentResource` emits `{value,label}` enums + ISO-8601 + the fake `gateway_ref` — **no
+  card field exists to leak**.
+- **`transactions` append-only ledger (C-2 resolved).** Migration `…200003` (ULID pk, `foreignUlid payment_id`,
+  `type`, **signed** `bigInteger amount`, currency, fake `gateway_ref`, **`created_at` only — no `updated_at`**).
+  `Transaction` model (`UPDATED_AT = null`), `TransactionType` enum (charge|refund|payout), repo behind an
+  interface. One row is written when a charge **resolves** (not on pending creation), mirroring core-api writing
+  its `ledger_entry` only on a terminal result.
+- **`ChargeService` gained `resolve()` + `scheduleResolution()`.** `resolve()` rolls the gateway **outside** the
+  DB transaction, then **locks + re-checks terminal status + persists + appends the ledger row inside** the
+  transaction — idempotent under job retry / duplicate dispatch (row lock is the authoritative single-write guard,
+  ADR-07 philosophy). `PaymentRepository` gained `findForUpdate` (SELECT … FOR UPDATE) + `markResolved`.
+- **`DeliverChargeResultJob` (queued, `ShouldBeUnique` by payment, retryable w/ backoff).** Resolves the charge
+  (result persisted **first**, so a delivery failure never loses it), then POSTs the signed result to core-api:
+  `X-Signature = hmac_sha256(raw_body, CORE_API_WEBHOOK_SECRET)` + a **separate** bearer (`CORE_API_BEARER_TOKEN`)
+  + forwarded `Log-Trace-ID`. `occurred_at` is the **resolution** time (`payment.updated_at`), not delivery time,
+  so a retried webhook keeps the true event timestamp. `failed()` logs gracefully (core-api receiver is Chunk D).
+  Callback URL is **config-only, never from the request body (SSRF guard)**.
+- **config/.env/lang:** `services.core_api.{callback_url,bearer_token,webhook_secret}`; `.env.example` gains the
+  three `CORE_API_*` vars (all `[PLACEHOLDER]`); `api.php` lang gains `payments.created`,
+  `payments.idempotency_key_required`, `errors.too_many_requests`.
+
+**financial-logic-reviewer — findings triaged**
+- **Fixed:** **H-3** gateway roll moved OUT of the DB transaction (lock held only for the write, not a slow
+  gateway response); **audit-timestamp** `occurred_at` now = resolution time, not delivery time (correct on
+  retry); **H-1** split the webhook **bearer token from the HMAC key** (a leaked `Authorization` header can no
+  longer forge a signature); **H-2** added `ShouldBeUnique` (collapses replay-while-pending + at-least-once
+  redelivery). Added the two flagged missing tests (replay-after-resolution returns the live terminal payment; no
+  second job when already terminal).
+- **Deferred/rejected (documented):** **`(payment_id,type)` unique on the ledger** — rejected: the row-lock +
+  terminal-guard is the authoritative single-write guard (ADR-07/09 philosophy), and a `(payment_id,type)` unique
+  would **break future partial refunds** (N refund rows per payment); a `gateway_ref` unique wouldn't help since a
+  buggy double-resolve mints a *new* ref each roll. **`order_id` ULID rule** — kept as `string` per the chunk spec;
+  core-api is the only caller and it's shared-secret-gated. **M-1** (failed-charge `amount=0` vs future refunds) +
+  **M-2** (real-gateway `gateway_ref` uniqueness) — refund-chunk / real-gateway concerns, noted for later. **N-2**
+  `LogHelper` is a canonical stub — not forked. **N-3** non-issue: 4 backoff gaps is correct for 5 tries.
+
+**Decisions (candidate for `docs/technical-decision-log.md`)**
+- **Webhook uses two distinct secrets** — `CORE_API_BEARER_TOKEN` (auth) + `CORE_API_WEBHOOK_SECRET` (HMAC key) —
+  so bearer interception ≠ signature-forgery. Worth a line under **ADR-10**.
+- **payment-service `transactions` ledger is append-only and written at charge *resolution*** (not creation);
+  **failed charge = signed `amount` 0** so `SUM(amount)` is the honest net position. Worth a line under **ADR-13**.
+- **Charge resolution = gateway-roll-outside-txn + lock-recheck-write-inside**; the DB row lock + terminal-status
+  re-check is the authoritative idempotency guard for the ledger (extends **ADR-07/09** to the payment side).
+- **Webhook callback URL is config-only (SSRF guard)** — never accepted from the request body.
+
+**Verification**
+- `composer format` (Pint) — clean (`{"result":"passed"}`). `php artisan test` → **29 passed (185 assertions)** on
+  `sqlite_testing :memory:` (`RefreshDatabase`); was 15 → +14 new Chunk-B assertions-bearing tests.
+- New coverage: `PaymentEndpointTest` (7) — 401 (no token) / 403 (bad token) / 422 (missing key, amount 0,
+  unknown gateway) / 201 pending + job queued / idempotent same-key returns same payment;
+  `ChargeResolutionTest` (5) — forced success (+amount ledger row) / forced failure (0 ledger row) / re-resolve is
+  a no-op / replay-after-resolution returns live terminal payment / no job when already terminal;
+  `ChargeWebhookTest` (2) — job resolves then posts a correctly-signed webhook (HMAC verifies with the secret over
+  the exact bytes; bearer is the separate token; trace forwarded) / tamper changes the HMAC.
+- *Not run:* docker MySQL apply (validated via sqlite `RefreshDatabase`; migration ordered after `payments`).
+  No end-to-end cross-service run yet — core-api webhook receiver is Chunk D.
+
+**Next — slice 2 remaining chunks (await per-chunk approval):**
+- **C:** core-api → payment client in a queued job (shared secret + `Idempotency-Key`), triggered for a pending order.
+- **D:** core-api webhook receiver — verify HMAC + bearer, atomically flip order → paid, convert holds → issued QR
+  tickets, increment `quantity_sold`, write `ledger_entry`, enqueue order-confirmation; idempotent on replay.
+- **E:** end-to-end purchase-loop test + financial-logic-reviewer pass.
+
 ## 2026-06-29 — Day 3 (slice 2 · Chunk A): payment-service money foundation — gateways + idempotent charge
 **Maps to:** Day 3 — payment-service (StripeSim/PayPalSim + idempotency) (PLAN.md); payment-service `CLAUDE.md`
 §B/§D/§F; ADR-07 (hybrid lock — referenced), ADR-09 (DB-backed idempotency). **Chunk A of a 5-chunk slice; B–E

@@ -47,4 +47,21 @@ return [
         'service_token' => env('PAYMENT_SERVICE_TOKEN'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Outbound webhook to core-api (EventHub)
+    |--------------------------------------------------------------------------
+    | Where this service POSTs the terminal charge result (ADR-10). The bearer
+    | token authenticates the caller; the webhook_secret is a SEPARATE key that
+    | HMAC-signs the body (X-Signature) — so a leaked Authorization header can't
+    | forge a signature. `callback_url` is a fixed, trusted endpoint — never
+    | accepted from a request body (SSRF guard). Secrets live in env only.
+    */
+
+    'core_api' => [
+        'callback_url' => env('CORE_API_WEBHOOK_URL'),
+        'bearer_token' => env('CORE_API_BEARER_TOKEN'),
+        'webhook_secret' => env('CORE_API_WEBHOOK_SECRET'),
+    ],
+
 ];

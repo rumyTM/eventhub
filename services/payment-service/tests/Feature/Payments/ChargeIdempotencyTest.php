@@ -4,10 +4,12 @@ namespace Tests\Feature\Payments;
 
 use App\Enums\PaymentStatus;
 use App\Exceptions\Payments\IdempotencyKeyConflictException;
+use App\Gateways\GatewayManager;
 use App\Models\IdempotencyKey;
 use App\Models\Payment;
 use App\Repositories\Contracts\IdempotencyKeyRepositoryInterface;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
+use App\Repositories\Contracts\TransactionRepositoryInterface;
 use App\Services\Payments\ChargeService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -100,7 +102,12 @@ class ChargeIdempotencyTest extends TestCase
         );
         $idem->shouldReceive('findByKey')->with('race-key')->once()->ordered()->andReturn($winnerKey);
 
-        $service = new ChargeService(app(PaymentRepositoryInterface::class), $idem);
+        $service = new ChargeService(
+            app(PaymentRepositoryInterface::class),
+            $idem,
+            app(TransactionRepositoryInterface::class),
+            app(GatewayManager::class),
+        );
 
         $result = $service->createCharge('race-key', $this->payload());
 
