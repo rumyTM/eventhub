@@ -35,4 +35,19 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | payment-service (EventHub inter-service client)
+    |--------------------------------------------------------------------------
+    | Base URL + the shared-secret bearer core-api presents on every money call,
+    | plus the default gateway to charge against (gateway selection at checkout
+    | is a later concern). Secrets live in env only — never commit a real value.
+    */
+
+    'payment' => [
+        'base_url' => env('PAYMENT_SERVICE_URL', 'http://payment-service:8001'),
+        'service_token' => env('PAYMENT_SERVICE_TOKEN'),
+        'default_gateway' => env('PAYMENT_DEFAULT_GATEWAY', 'stripe_sim'),
+    ],
+
 ];

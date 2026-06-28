@@ -24,6 +24,11 @@ final class OrderRepository implements OrderRepositoryInterface
         return Order::query()->with(['items', 'holds'])->findOrFail($id);
     }
 
+    public function find(string $id): ?Order
+    {
+        return Order::query()->find($id);
+    }
+
     public function markPendingExpired(array $orderIds): int
     {
         if ($orderIds === []) {

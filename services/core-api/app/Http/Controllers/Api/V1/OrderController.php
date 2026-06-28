@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\OrderStatus;
 use App\Helpers\LogHelper;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Orders\CheckoutRequest;
 use App\Http\Resources\OrderResource;
+use App\Jobs\InitiateChargeJob;
 use App\Services\Orders\CheckoutService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -33,6 +35,14 @@ final class OrderController extends Controller
             idempotencyKey: $request->validated('idempotency_key'),
             items: $request->validated('items'),
         );
+
+        // Kick off the charge off the request path. Guarded by `pending` so a replayed checkout that
+        // returns an already-resolved order doesn't re-charge; the job is itself idempotent (ADR-09).
+        // afterCommit() so the job is only enqueued once the checkout transaction has durably committed
+        // (no charge job for an order that was rolled back).
+        if ($order->status === OrderStatus::Pending) {
+            InitiateChargeJob::dispatch($order->id)->afterCommit();
+        }
 
         return ApiResponse::success(
             data: ['order' => new OrderResource($order)],

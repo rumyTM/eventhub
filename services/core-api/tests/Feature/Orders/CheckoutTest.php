@@ -3,6 +3,7 @@
 namespace Tests\Feature\Orders;
 
 use App\Enums\HoldStatus;
+use App\Jobs\InitiateChargeJob;
 use App\Models\Attendee;
 use App\Models\Event;
 use App\Models\Setting;
@@ -12,6 +13,7 @@ use App\Models\User;
 use App\Models\Vendor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -19,6 +21,15 @@ use Tests\TestCase;
 class CheckoutTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Checkout now dispatches the async charge job; fake the queue so these tests stay focused on
+        // hold/inventory/idempotency behaviour (the job itself is covered in InitiateChargeTest).
+        Queue::fake();
+    }
 
     private function actingAttendee(): Attendee
     {
@@ -72,6 +83,10 @@ class CheckoutTest extends TestCase
         ]);
         $this->assertDatabaseHas('order_items', ['ticket_type_id' => $tt->id, 'quantity' => 2, 'unit_price' => 50000]);
         $this->assertSame(0, $tt->fresh()->quantity_sold);
+
+        // A pending order kicks off the charge off the request path.
+        $orderId = $response->json('data.order.id');
+        Queue::assertPushed(InitiateChargeJob::class, fn (InitiateChargeJob $job): bool => $job->orderId === $orderId);
     }
 
     public function test_commission_rate_snapshot_reads_from_settings_when_present(): void

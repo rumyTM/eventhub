@@ -2,10 +2,12 @@
 
 namespace App\Providers;
 
+use App\Contracts\PaymentServiceContract;
 use App\Repositories\Contracts\AttendeeRepositoryInterface;
 use App\Repositories\Contracts\EventRepositoryInterface;
 use App\Repositories\Contracts\IdempotencyKeyRepositoryInterface;
 use App\Repositories\Contracts\OrderRepositoryInterface;
+use App\Repositories\Contracts\PaymentRepositoryInterface;
 use App\Repositories\Contracts\SettingRepositoryInterface;
 use App\Repositories\Contracts\TicketHoldRepositoryInterface;
 use App\Repositories\Contracts\TicketTypeRepositoryInterface;
@@ -15,11 +17,13 @@ use App\Repositories\Eloquent\AttendeeRepository;
 use App\Repositories\Eloquent\EventRepository;
 use App\Repositories\Eloquent\IdempotencyKeyRepository;
 use App\Repositories\Eloquent\OrderRepository;
+use App\Repositories\Eloquent\PaymentRepository;
 use App\Repositories\Eloquent\SettingRepository;
 use App\Repositories\Eloquent\TicketHoldRepository;
 use App\Repositories\Eloquent\TicketTypeRepository;
 use App\Repositories\Eloquent\UserRepository;
 use App\Repositories\Eloquent\VendorRepository;
+use App\Services\Payments\PaymentClient;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -39,6 +43,10 @@ class RepositoryServiceProvider extends ServiceProvider
         TicketHoldRepositoryInterface::class => TicketHoldRepository::class,
         IdempotencyKeyRepositoryInterface::class => IdempotencyKeyRepository::class,
         SettingRepositoryInterface::class => SettingRepository::class,
+        PaymentRepositoryInterface::class => PaymentRepository::class,
+
+        // Inter-service client (CLAUDE.md §H) — fakeable in tests via the contract.
+        PaymentServiceContract::class => PaymentClient::class,
     ];
 
     public function register(): void

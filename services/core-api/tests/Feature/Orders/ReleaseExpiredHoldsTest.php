@@ -10,12 +10,22 @@ use App\Models\Order;
 use App\Models\TicketHold;
 use App\Models\TicketType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class ReleaseExpiredHoldsTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Checkout dispatches the async charge job; fake the queue so this hold-expiry test stays
+        // isolated from the payment-service call (covered in InitiateChargeTest).
+        Queue::fake();
+    }
 
     private function checkoutOne(int $quantityTotal = 10): Order
     {

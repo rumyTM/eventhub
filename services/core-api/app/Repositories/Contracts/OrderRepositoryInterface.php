@@ -14,6 +14,9 @@ interface OrderRepositoryInterface
     /** Load an order with its items and holds (for the response / replay). */
     public function findWithLines(string $id): Order;
 
+    /** Find an order by id, or null if it no longer exists (used by the async charge job). */
+    public function find(string $id): ?Order;
+
     /**
      * Mark the given orders `expired` only if still `pending`. Returns the number updated.
      * Never touches paid/refunded/cancelled orders.

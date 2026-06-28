@@ -6,6 +6,70 @@
 
 ---
 
+## 2026-06-29 — Day 3 (slice 2 · Chunk C): core-api → payment-service charge client + queued InitiateCharge job
+**Maps to:** Day 3 — core-api initiates the charge for a pending order (PLAN.md); core-api `CLAUDE.md` §H
+(inter-service clients) + §F.3 (order→payment); root `CLAUDE.md` comms/auth matrix; ADR-09 (idempotency),
+ADR-17 (orders 1:N payments / retry cardinality). **Chunk C of the 5-chunk slice; A+B done, D+E upcoming.**
+
+**What changed (`services/core-api`)**
+- **`PaymentServiceContract` + `PaymentClient` (HTTP impl).** `createCharge()` POSTs to payment-service
+  `/api/v1/payments` with `Authorization: Bearer ${PAYMENT_SERVICE_TOKEN}`, a deterministic per-attempt
+  `Idempotency-Key`, and `LogHelper::traceHeaders()`; base URL + token from `config/services.php` (env-driven).
+  `connectTimeout(5)/timeout(10)` + `->throw()` so a non-2xx/timeout surfaces as an exception. Bound
+  contract→impl in `RepositoryServiceProvider` (fakeable). `ChargeResult` VO carries only the gateway ref +
+  pending status — **no card data**. Only `createCharge` for now; refund/payout join their slices.
+- **`ChargeOrderService` (orchestration) + `InitiateChargeJob` (queued).** Job dispatched from
+  `OrderController` (`->afterCommit()`, guarded by `status === Pending`) once checkout commits. The service:
+  no-ops unless the order is still `pending`; `firstOrCreate`s the core-api `payments` row on the unique
+  per-attempt `idempotency_key` (`charge:{orderId}:attempt:{n}`); calls the client; persists `external_ref`.
+  Retryable (`tries=5`, backoff `[10,30,60,120]`), `ShouldBeUnique` per (order, attempt). **On 5xx/timeout the
+  order STAYS pending** (job retries; hold-expiry is the safety net); **on 4xx the job fast-fails** (no retry —
+  a permanent client error can't succeed by retrying) and the order still stays pending. Never marks paid.
+- **`PaymentRepository` (core-api, new) + `find()` on `OrderRepository`.** `firstOrCreateForAttempt` (catches the
+  concurrent unique-violation race → replay, mirroring `CheckoutService`); `recordExternalRef` does a **targeted
+  `update()`** of only `external_ref` (never a stale full `save()` that could clobber a webhook-written status).
+- **config/.env/factories:** `services.payment.{base_url,service_token,default_gateway}`; `.env.example` gains
+  `PAYMENT_SERVICE_URL` + `PAYMENT_SERVICE_TOKEN=[PLACEHOLDER]` + `PAYMENT_DEFAULT_GATEWAY`. Added the missing
+  `OrderFactory` + `PaymentFactory` (referenced by the models). `CheckoutTest`/`ReleaseExpiredHoldsTest` now
+  `Queue::fake()` (checkout dispatches the charge job) + assert the job is pushed for a pending order.
+
+**financial-logic-reviewer — findings triaged**
+- **Fixed:** **H-2** `recordExternalRef` now a targeted `update()` (won't clobber a webhook-written status back to
+  pending); **C-1/M-2** job fast-fails on 4xx (incl. an empty-token 401) instead of burning 5 retries, only 5xx/
+  timeout retry; **H-1** `firstOrCreateForAttempt` catches the concurrent unique-violation → replay (consistent with
+  `CheckoutService`); **H-4** dispatch uses `->afterCommit()`; **M-3** strengthened the re-dispatch test to assert
+  `external_ref` isn't overwritten + added a 4xx-not-retried test.
+- **Deferred/rejected (documented):** **H-3** "no ledger entry on charge initiation" — by design: core-api writes
+  `ledger_entries` on **webhook success** (§F.4 / ADR-13), not on a pending attempt; the `payments` row records the
+  attempt (Chunk D writes the settled ledger row). **C-2** `ShouldBeUnique` uses the cache store — ops note: prefer
+  `CACHE_STORE=redis` in prod; **correctness does not depend on it** (firstOrCreate + unique key + gateway dedupe are
+  the real guards). **M-1** `attempt` is always 1 today and retries reuse it (correct dedupe); the param is the
+  documented seam for a *deliberate* new attempt (ADR-17 fresh key → new row). **N-1** `Payment` SoftDeletes — a
+  pre-existing schema decision, out of Chunk C scope. **N-2** `LogHelper` is a canonical stub (not forked; token is
+  never logged).
+
+**Decisions (candidate for `docs/technical-decision-log.md`)**
+- **Charge initiation is a queued job dispatched after checkout commit**; idempotency key is **deterministic per
+  (order, attempt)** so a queue retry reuses the same `payments` row and de-dupes at the gateway (extends ADR-09/17
+  to the core-api→payment call). **Failure policy:** 5xx/timeout → retry; 4xx → fast-fail; **order never leaves
+  `pending` except via the webhook** (Chunk D) or hold-expiry — money never advances on a failed charge.
+- **Gateway selection deferred** — Chunk C charges the configured `default_gateway`; per-order gateway choice at
+  checkout is a later concern.
+
+**Verification**
+- `composer format` (Pint) — clean (`{"result":"passed"}`). `php artisan test` → **100 passed (282 assertions)** on
+  `sqlite_testing :memory:` (`RefreshDatabase`); was 99 (pre-existing) → all green incl. the 6 new charge tests.
+- New `Feature\Payments\InitiateChargeTest` (6): correct auth header + Idempotency-Key + body + a pending payments
+  row; 5xx leaves order pending + retryable; timeout (`ConnectionException`) bubbles; re-dispatch reuses the key →
+  one payment row, `external_ref` not clobbered; 4xx not retried; no-op when order already settled. `CheckoutTest`/
+  `ReleaseExpiredHoldsTest` updated for the new dispatch (Queue::fake).
+- *Not run:* real cross-service HTTP (payment-service faked via `Http::fake`); end-to-end loop is Chunk E.
+
+**Next — slice 2 remaining chunks (await per-chunk approval):**
+- **D:** core-api webhook receiver — verify HMAC + bearer, atomically flip order → paid, convert holds → issued QR
+  tickets, increment `quantity_sold`, write the `ledger_entry`, enqueue order-confirmation; idempotent on replay.
+- **E:** end-to-end purchase-loop test + financial-logic-reviewer pass.
+
 ## 2026-06-29 — Day 3 (slice 2 · Chunk B): payment-service charge endpoint + transactions ledger + signed webhook
 **Maps to:** Day 3 — payment-service `POST /payments` + webhook callback (PLAN.md); payment-service `CLAUDE.md`
 §C/§E/§G/§F/§H; ADR-09 (idempotency), ADR-10 (shared-secret bearer + HMAC webhook), ADR-13 (append-only ledger).
