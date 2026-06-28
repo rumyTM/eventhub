@@ -140,15 +140,14 @@ assignment). **Partial-failure on ticket_types:** the event and all its ticket t
 transaction** — if any ticket type is invalid the whole create rolls back, so you never persist an event with a
 half-written ticket-type set.
 
-### 3.2 Purchase ticket (start checkout) — `POST /api/v1/orders/checkout` (attendee)
+### 3.2 Purchase ticket (start checkout) — `POST /api/v1/orders` (attendee)
 ```jsonc
 // Request  (Idempotency-Key header carried for the order)
 { "items": [ { "ticket_type_id": "01HF8ZB0A1C2D3E4F5G6H7J8K9", "quantity": 2 } ] }
-// Response 201 — hold created, payment pending  (ids are ULIDs — ADR-19)
+// Response 201 — pending order + 15-min hold created (no payment yet — the charge is initiated next; see §6)
 { "success": true, "message": "Checkout started", "errors": null,
   "data": { "order": { "id": "01HF8ZC1B2D3E4F5G6H7J8K9M0", "status": {"value":"pending","label":"Pending"},
-            "currency": "BDT", "total": 10000, "hold_expires_at": "2026-06-27T12:15:00Z" },
-            "payment": { "ref": "[PLACEHOLDER]", "status": {"value":"pending","label":"Pending"} } } }
+            "currency": "BDT", "total": 10000, "hold_expires_at": "2026-06-27T12:15:00Z" } } }
 // 409 if inventory insufficient (TicketsUnavailableException)
 ```
 **Lock-and-decrement sequence (hybrid lock).** Oversell is prevented with a **hybrid lock** (see ADR-07): a

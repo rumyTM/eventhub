@@ -1,0 +1,5 @@
+vendor/
+node_modules/
+.git/
+storage/logs/*
+# tests/ are intentionally kept in the image so `docker compose exec payment-service php artisan test` works for reviewers.

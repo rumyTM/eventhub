@@ -6,6 +6,76 @@
 
 ---
 
+## 2026-06-29 — Day 3 (slice 2 · Chunk A): payment-service money foundation — gateways + idempotent charge
+**Maps to:** Day 3 — payment-service (StripeSim/PayPalSim + idempotency) (PLAN.md); payment-service `CLAUDE.md`
+§B/§D/§F; ADR-07 (hybrid lock — referenced), ADR-09 (DB-backed idempotency). **Chunk A of a 5-chunk slice; B–E
+are upcoming (listed under Next).**
+
+**What changed (`services/payment-service`)**
+- **Migrations:** `payments` (ULID pk, `order_id` ULID reference — orders live in core-api, so **no cross-service
+  FK**; `gateway`, `status` pending|succeeded|failed, `amount` integer minor units, `currency`, `gateway_ref`
+  nullable — a **clearly-fake** simulated ref only, **never** PAN/CVV/token) and `idempotency_keys` (mirrors
+  core-api: unique `key` + `request_hash` + json `response_payload` + `status`).
+- **Gateway abstraction (CLAUDE.md §B):** `PaymentGatewayContract` (charge/refund/payout + name/delay), an
+  `AbstractGatewaySimulator` base, and `StripeSimulator` / `PayPalSimulator`, resolved by name via
+  `GatewayManager`. Outcome is decided from a configurable **success_rate** and is **deterministic** two ways for
+  tests — `force=succeed|fail` and a per-instance seeded RNG. `GatewayResult` is an immutable VO (succeeded +
+  fake reference + gateway).
+- **config/gateways.php:** `stripe_sim` + `paypal_sim`, each with `success_rate`, `delay_seconds`, and test-only
+  `force`/`seed`, all env-driven. `.env.example` updated (gateway vars + `PAYMENT_SERVICE_TOKEN=[PLACEHOLDER]`)
+  and re-aligned to the service's real docker config (mysql/redis/`eventhub_payments`).
+- **Layering (Controller→Service→Repository→Model):** `ChargeService::createCharge()` (idempotent charge
+  creation — persists a `pending` Payment + the key→`payment_id` mapping in one `DB::transaction`; same key+body →
+  same Payment, same key+different body → 409 `IdempotencyKeyConflictException`, concurrent-duplicate → unique
+  violation recovered as a replay). `Payment`/`IdempotencyKey` repositories behind interfaces, bound in a new
+  `RepositoryServiceProvider`. `Payment`/`IdempotencyKey` models (ULIDs, enum/integer casts). `PaymentStatus` +
+  `Gateway` enums. Payment/IdempotencyKey factories. `lang/en/api.php` payments group.
+- **`EnsureServiceToken` middleware** (shared-secret bearer; missing → 401, wrong → 403, constant-time
+  `hash_equals`, generic messages) registered as the `service.token` alias in `bootstrap/app.php`. No money route
+  is wired yet (Chunk B), so nothing is publicly reachable.
+- **composer.json:** added `format` (Pint) + `test` scripts (the scaffold lacked them). *(This commit also brings
+  the previously-uncommitted payment-service scaffold into git.)*
+
+**financial-logic-reviewer — findings triaged**
+- **Fixed:** **H-2** gateway RNG moved off global `mt_srand`/`mt_rand` to a per-instance `\Random\Randomizer`
+  (no cross-request RNG bleed); **H-3** generic 401/403 auth messages (no mechanism disclosure); **H-4** removed a
+  dead computed `failure_rate` float config key; **M-3** `GatewayManager` now guards `is_a(...Contract)` before
+  instantiating a driver; **M-4** added a deterministic concurrent-conflict test; **N-3/N-5** factory + test tidy.
+- **Rejected/deferred (documented):** **C-1** "double-charge window" — not valid: both writes are in one
+  `DB::transaction`, so the loser's unique-key violation rolls back its Payment too; mirrors the slice-1-reviewed
+  `CheckoutService`. The new M-4 test **proves** it (loser replays the winner; `Payment::count()` stays 1).
+  **C-2** `transactions` ledger — **deferred to Chunk B by design**: the ledger records *resolved* financial
+  events (succeeded/failed), which happen at charge resolution (B), exactly as core-api writes its `ledger_entry`
+  on webhook success, not on pending creation. **H-1/M-1/M-2** kept consistent with core-api. **M-5** (amount>0
+  validation) → Chunk B FormRequest (validation belongs in the request layer). **N-1** moot — `Str::random()` uses
+  `random_bytes()`, not `mt_rand`.
+
+**Decisions (candidate for `docs/technical-decision-log.md`)**
+- **payment-service idempotency mirrors core-api ADR-09** (DB `idempotency_keys` table → `response_payload`,
+  *not* a column on `payments`); same key+body → same record, +different body → 409, concurrent-duplicate →
+  unique-violation-recovered replay. Worth a one-line note under ADR-09 that both ends of the money path share the
+  mechanics. **Payment-service `transactions` ledger is written at charge *resolution*, not creation** — promote
+  alongside the Chunk B webhook work.
+
+**Verification**
+- `composer format` (Pint) — clean (`{"result":"passed"}`). `php artisan test` → **15 passed (137 assertions)**
+  on `sqlite_testing :memory:` (`RefreshDatabase`).
+- New coverage: `Unit\Gateways\GatewaySimulatorTest` (9) — forced succeed/fail, success_rate 1.0/0.0 edges, seeded
+  reproducibility, refund/payout honour force, manager resolves each gateway + carries delay + rejects unknown.
+  `Feature\Payments\ChargeIdempotencyTest` (4) — pending charge created, same key+body returns same record (no
+  second charge), same key+different body → 409, **concurrent-duplicate replays the winner with no double charge**.
+- *Not run:* docker MySQL apply (migrations validated via sqlite RefreshDatabase; `ulid`/`json`/named-index are
+  MySQL-compatible). No HTTP test for `EnsureServiceToken` yet — added with the route in Chunk B.
+
+**Next — slice 2 remaining chunks (await per-chunk approval):**
+- **B:** `POST /api/v1/payments` (create charge → pending, idempotent, behind `service.token`) + the signed HMAC
+  webhook callback to core-api; **add the append-only `transactions` ledger** (C-2) written on charge resolution;
+  amount/currency validation in the FormRequest (M-5); auth feature tests (401/403).
+- **C:** core-api → payment client in a queued job (shared secret + `Idempotency-Key`), triggered for a pending order.
+- **D:** core-api webhook receiver — verify HMAC, atomically flip order → paid, convert holds → issued QR tickets,
+  increment `quantity_sold`, write `ledger_entry`, enqueue order-confirmation; idempotent on replay.
+- **E:** end-to-end purchase-loop test + financial-logic-reviewer pass.
+
 ## 2026-06-29 — Day 3 (slice 1): Checkout — order + 15-min holds, distributed lock, idempotency (core-api)
 **Maps to:** Day 3 — checkout/holds/locking (PLAN.md, highest-value slice); CLAUDE.md §F Order processing;
 ADR-07 (hybrid lock), ADR-09 (idempotency), ADR-24 (new — checkout mechanics).
