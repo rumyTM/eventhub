@@ -24,6 +24,18 @@ final class OrderRepository implements OrderRepositoryInterface
         return Order::query()->with(['items', 'holds'])->findOrFail($id);
     }
 
+    public function findForRefund(string $id): ?Order
+    {
+        return Order::query()
+            ->with([
+                // ticket_types and events are soft-deletable; pull them withTrashed so a refund on a
+                // historical/cancelled event can still resolve its start time for the policy window.
+                'items.ticketType' => fn ($q) => $q->withTrashed(),
+                'items.ticketType.event' => fn ($q) => $q->withTrashed(),
+            ])
+            ->find($id);
+    }
+
     public function find(string $id): ?Order
     {
         return Order::query()->find($id);

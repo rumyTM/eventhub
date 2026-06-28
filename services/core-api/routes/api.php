@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\PaymentWebhookController;
+use App\Http\Controllers\Api\V1\RefundController;
 use App\Http\Controllers\Api\V1\TicketTypeController;
 use App\Http\Controllers\Api\V1\VendorController;
 use App\Support\ApiResponse;
@@ -70,6 +71,11 @@ Route::middleware(['auth:sanctum', 'role:attendee', 'throttle:checkout'])->group
     Route::post('orders', [OrderController::class, 'store'])->name('orders.store');
 });
 
+// --- Attendee refund request (own paid order; policy-derived amount, idempotent) ---
+Route::middleware(['auth:sanctum', 'role:attendee', 'throttle:refund'])->group(function () {
+    Route::post('orders/{order}/refund', [RefundController::class, 'store'])->name('orders.refund');
+});
+
 // --- Authenticated (any role) ---
 Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('auth')->name('auth.')->group(function () {
@@ -91,5 +97,9 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('throttle:write')->name('vendors.verify');
         Route::post('vendors/{vendor}/reject', [VendorController::class, 'reject'])
             ->middleware('throttle:write')->name('vendors.reject');
+
+        // Admin-initiated refund (e.g. event-cancellation 100% refund). Policy-derived amount; idempotent.
+        Route::post('orders/{order}/refund', [RefundController::class, 'initiate'])
+            ->middleware('throttle:refund')->name('orders.refund');
     });
 });

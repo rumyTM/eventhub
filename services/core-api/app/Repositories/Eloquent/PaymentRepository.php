@@ -41,6 +41,17 @@ final class PaymentRepository implements PaymentRepositoryInterface
             ->first();
     }
 
+    public function succeededForOrder(string $orderId): ?Payment
+    {
+        // At most one payment per order reaches `succeeded` (ADR-17); the latest such row is the charge
+        // of record a refund attaches to.
+        return Payment::query()
+            ->where('order_id', $orderId)
+            ->where('status', PaymentStatus::Succeeded->value)
+            ->latest()
+            ->first();
+    }
+
     public function markStatus(Payment $payment, PaymentStatus $status): void
     {
         Payment::query()->whereKey($payment->id)->update(['status' => $status->value]);

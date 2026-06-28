@@ -160,10 +160,10 @@ erDiagram
     refunds {
         ulid id PK
         ulid payment_id FK
-        bigint amount "minor units"
+        bigint amount "minor units, auto-derived (policy% x base)"
         string policy_applied "100|50|0"
-        enum status "pending|completed|failed"
-        string reason
+        enum status "requested|pending|completed|failed"
+        string reason "attendee_requested|event_cancelled"
     }
     payouts {
         ulid id PK
@@ -278,6 +278,13 @@ erDiagram
   "start another charge." A succeeded payment can then be refunded in parts over time (1:N) — supporting the
   100/50/0% policy and partial/dispute refunds. Refund totals are validated against the ledger so cumulative refunded
   never exceeds the charge.
+- **refund request + policy (ADR-29).** A refund is raised **against an order** (the attendee never names an amount);
+  the amount is auto-derived = `policy% × selected line totals` and capped so cumulative refunds never exceed the
+  charge. `refunds.reason` is the policy-driving **category** (`attendee_requested` time-banded 100/50/0% vs
+  `event_cancelled` flat 100%, ADR-23), not free text; `policy_applied` snapshots the band. A refund starts
+  `requested` (policy-approved, execution job queued, **no money moved, no ledger row yet**) → `pending` (executing)
+  → `completed|failed` (Chunk C). Idempotency is **one open refund per order** (`requested|pending`), enforced under
+  a `SELECT … FOR UPDATE` on the order row, so a duplicate request returns the existing refund — mirroring checkout.
 - **vendor KYC (vendors + kyc_documents).** Identity fields (`legal_name`, `trade_license_no`, `tin_bin`,
   `representative_nid`, `contact_phone`, `address`) live on `vendors`; uploaded evidence lives in `kyc_documents`
   (1:N — a trade license, an NID, a bank statement). The verification audit (`submitted_at`, `reviewed_by` → the

@@ -411,6 +411,31 @@
   write path; covered by a dedicated regression test (`the expiry cron never corrupts a settled order`).
 - Trade-off: none of substance — the guard only narrows the UPDATE; the happy path (still-active holds) is unchanged.
 
+### ADR-29: Refund request + policy are decided before any money moves; one open refund per order
+- Decision: split the refund flow so the **request + policy decision** (this slice) are fully separate from
+  **execution** (a later slice). A pure, DI-injected `RefundPolicy` decides eligibility and the auto-derived amount
+  from `(reason, event starts_at, now, selected line base, original charge, already-refunded)`; the `RefundService`
+  persists a `requested` refund row **idempotently** and dispatches a queued `ExecuteRefundJob` — but **writes no
+  ledger entry and moves no money** until execution. Idempotency is **one open refund per order** (`requested|pending`),
+  re-asserted under a `SELECT … FOR UPDATE` on the order row, so a duplicate request returns the existing refund.
+- Alternatives considered: (a) decide + execute in one request-path call; (b) let the attendee name an amount;
+  (c) dedupe refunds with a client `Idempotency-Key` header + a new unique column.
+- Why: keeping the **policy pure** makes the 100/50/0% bands, the cancellation override (ADR-23), half-up integer
+  rounding (ADR-08), and the cumulative-refund cap unit-testable without a DB — the highest-value tests for a money
+  path. Deciding **before** dispatching execution means an ineligible/duplicate request never enqueues a money job,
+  so the guard against double-refund lives at the point of creation, not deep in the worker. The attendee never names
+  an amount (it is derived) — that removes a whole class of abuse/oversight. I chose the **one-open-refund-per-order**
+  guard over a client-key column because it needs no migration, is the natural business rule ("you can't open two
+  refunds on the same order at once"), and the order row lock makes it race-safe exactly like checkout's idempotency
+  (ADR-09/24). The `<24h` 0% band is treated as **out of policy** here (request rejected); the contest → dispute path
+  (ADR-11) is deferred to its own slice.
+- Trade-off accepted: a freshly-`requested` refund whose execution never completes would block a second open refund
+  until reconciliation flips it terminal — acceptable, and exactly the safety property we want (no two concurrent
+  refunds on one order). Adding a distinct `requested` status (vs reusing `pending`) is a small schema/enum change,
+  justified because it makes "approved, but no money has moved yet" explicit on the row. Partial refunds across
+  multiple separate requests are out of scope for this slice (one open refund per order at a time); the amount math
+  already supports a subset selection within a single request.
+
 ---
 
 ## Trade-offs made due to the 5-day constraint

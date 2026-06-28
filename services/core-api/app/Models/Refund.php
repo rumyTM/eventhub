@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\RefundReason;
 use App\Enums\RefundStatus;
 use Database\Factories\RefundFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -26,6 +27,7 @@ class Refund extends Model
 
     /**
      * `amount` is integer minor units, auto-derived as policy% x selected line totals (never user-set).
+     * `reason` is the policy-driving category, not free text. `policy_applied` is the band ('100'|'50'|'0').
      *
      * @return array<string, string>
      */
@@ -33,6 +35,7 @@ class Refund extends Model
     {
         return [
             'status' => RefundStatus::class,
+            'reason' => RefundReason::class,
             'amount' => 'integer',
         ];
     }
@@ -40,6 +43,12 @@ class Refund extends Model
     public function payment(): BelongsTo
     {
         return $this->belongsTo(Payment::class);
+    }
+
+    /** True while the refund is still in flight (blocks a second open refund for the same order). */
+    public function isOpen(): bool
+    {
+        return $this->status->isOpen();
     }
 
     /** A dispute that this refund resolved (nullable inverse). */

@@ -14,6 +14,13 @@ interface OrderRepositoryInterface
     /** Load an order with its items and holds (for the response / replay). */
     public function findWithLines(string $id): Order;
 
+    /**
+     * Load an order with the relations the refund flow needs: its items and each item's (possibly
+     * soft-deleted) ticket type + event, so the refund window can be measured against the event start
+     * even for historical/cancelled events. Null if the order no longer exists.
+     */
+    public function findForRefund(string $id): ?Order;
+
     /** Find an order by id, or null if it no longer exists (used by the async charge job). */
     public function find(string $id): ?Order;
 

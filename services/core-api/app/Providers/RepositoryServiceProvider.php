@@ -9,6 +9,7 @@ use App\Repositories\Contracts\IdempotencyKeyRepositoryInterface;
 use App\Repositories\Contracts\LedgerEntryRepositoryInterface;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
+use App\Repositories\Contracts\RefundRepositoryInterface;
 use App\Repositories\Contracts\SettingRepositoryInterface;
 use App\Repositories\Contracts\TicketHoldRepositoryInterface;
 use App\Repositories\Contracts\TicketRepositoryInterface;
@@ -21,6 +22,7 @@ use App\Repositories\Eloquent\IdempotencyKeyRepository;
 use App\Repositories\Eloquent\LedgerEntryRepository;
 use App\Repositories\Eloquent\OrderRepository;
 use App\Repositories\Eloquent\PaymentRepository;
+use App\Repositories\Eloquent\RefundRepository;
 use App\Repositories\Eloquent\SettingRepository;
 use App\Repositories\Eloquent\TicketHoldRepository;
 use App\Repositories\Eloquent\TicketRepository;
@@ -48,6 +50,7 @@ class RepositoryServiceProvider extends ServiceProvider
         IdempotencyKeyRepositoryInterface::class => IdempotencyKeyRepository::class,
         SettingRepositoryInterface::class => SettingRepository::class,
         PaymentRepositoryInterface::class => PaymentRepository::class,
+        RefundRepositoryInterface::class => RefundRepository::class,
         TicketRepositoryInterface::class => TicketRepository::class,
         LedgerEntryRepositoryInterface::class => LedgerEntryRepository::class,
 

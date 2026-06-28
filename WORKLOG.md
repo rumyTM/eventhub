@@ -6,6 +6,72 @@
 
 ---
 
+## 2026-06-30 — Day 4 (slice 3 · Chunk A): refund REQUEST + POLICY (core-api)
+**Maps to:** Day 4 — refunds/payouts (PLAN.md); core-api `CLAUDE.md` §F Refunds + §H; `docs/erd.md` (refunds,
+ledger_entries); ADR-08/09/11/13/14/20/23. **Chunk A of slice 3 — request + policy only; execution (payment-service
+call + reversal ledger) is Chunk B/C. No money moves and no ledger row is written in this chunk.**
+
+**What changed (`services/core-api`)**
+- **`RefundPolicy`** (`app/Support/Refunds/`, pure, no DB) + **`RefundDecision`** value object — decides eligibility
+  and the auto-derived amount from `(reason, event starts_at, now, selected line base, original charge,
+  already-refunded)`. Bands: **>48h → 100%**, **24–48h inclusive → 50%**, **<24h → 0%**; **event-cancellation →
+  flat 100%** (ADR-23). Integer minor units only, **half-up** rounding via the basis-points trick (mirrors
+  `CalculateCommission`); result **capped** so cumulative refunds never exceed the charge. Time math uses raw
+  timestamps (no Carbon diff sign/float ambiguity).
+- **`RefundService`** + **`RefundRepository`** (+interface, bound) — creates a `requested` refund row **idempotently**:
+  **one open refund per order** (`requested|pending`), re-asserted under a `SELECT … FOR UPDATE` on the order row, so a
+  duplicate request returns the existing refund (no second row, no second job) — mirrors checkout/charge idempotency
+  (ADR-09/24). Amount + reason + policy band are snapshotted; the attendee never names an amount. New repo methods:
+  `OrderRepository::findForRefund` (eager-loads items→ticketType→event `withTrashed` for historical events),
+  `PaymentRepository::succeededForOrder`, `RefundRepository::findOpenForOrder` / `refundedTotalForOrder`.
+- **`ExecuteRefundJob`** — dispatched **only** for a freshly-created, policy-approved refund (controller guards on
+  `wasRecentlyCreated`, `afterCommit`); never for a duplicate/ineligible request. Guarded no-op unless the refund is
+  still `requested`. **Deliberately does NOT call payment-service or write any ledger** — that lands in Chunk C.
+- **Endpoints** (`/api/v1`, envelope, FormRequest, role-gated, `throttle:refund`, Controller→Service→Repository):
+  attendee `POST orders/{order}/refund` (own paid order, ownership via new `OrderPolicy::refund`); admin
+  `POST admin/orders/{order}/refund` (can set `reason=event_cancelled` → 100%, via `OrderPolicy::initiateRefund`).
+  New `RefundController`, `RequestRefundRequest`, `InitiateRefundRequest`, `RefundResource`.
+- **Enums/model/schema:** added `RefundReason` (`attendee_requested|event_cancelled`) and a `Requested` case to
+  `RefundStatus` (+ `isOpen()`/`isTerminal()`); `Refund` casts `reason`→enum, adds `isOpen()`; refunds migration
+  default `requested`; added `RefundFactory` (the model referenced a missing factory). Lang `api.refunds.*` added.
+- **`<24h` is treated as out-of-policy** here — the request is rejected (422); the contest → dispute path (ADR-11)
+  is a later slice, so no dispute rows are created in this chunk.
+
+**Decision promoted → `docs/technical-decision-log.md` ADR-29** (refund request/policy split from execution; one
+open refund per order under the order row lock; `requested` status before any money moves). ERD updated: refunds
+`status` now `requested|pending|completed|failed`, `reason` is the policy category, + a relationship note.
+
+**Verification**
+- `composer format` (Pint) clean. `php artisan test` — **141 passed (493 assertions)**, existing suites green.
+- New: `tests/Unit/RefundPolicyTest` (12 cases — bands incl. exact 24h/48h edges, cancellation override, past event,
+  partial base, half-up rounding, fully-refunded + partial cap) and `tests/Feature/Refunds/RefundRequestTest`
+  (11 cases — happy 100%/50%, idempotent re-request = same refund + one job, <24h rejected with no row/job, unpaid
+  rejected, partial subset amount, partial over-quantity rejected, 401/403 ownership/role, admin cancellation 100%
+  inside the 0% window). Both assert **`ledger_entries` count 0** and no payment/`quantity_sold`/order-status mutation.
+- `financial-logic-reviewer` run on the new money path — triaged:
+  - **Fixed C-1:** the cumulative-refund cap + policy decision now run **inside** the `DB::transaction` after
+    `lockForUpdate` (were read outside the lock), so the cap can never be computed from stale data. (In Chunk A
+    alone there was no actual over-refund — the order-scoped one-open-refund guard blocks a second row and nothing
+    completes refunds yet — but this makes the invariant authoritative for Chunk C.)
+  - **Fixed C-2:** the `order_item_id` `exists` rule is now scoped to the bound order (`->where('order_id', …)`), so
+    a line id from another order fails validation; the service ownership re-check stays as defence in depth.
+  - **Fixed N-2/N-3 + H-4 doc:** test helper is seconds-precise; `refunds.payment_id` FK is `restrictOnDelete`
+    (never let a refund vanish with its charge — ADR-15); `ExecuteRefundJob` now documents the Chunk-C
+    `requested→pending`-before-the-external-call contract.
+  - **Added test (H-1):** a fully-refunded order (seeded completed refund = charge) is refused `already_refunded`
+    with no new row/job — exercises the cap end-to-end.
+  - **Rejected N-4:** the reviewer asked for `SoftDeletes` on `Refund`, but ADR-15 lists refunds as **never
+    deleted** (lifecycle via status) — adding it would contradict the documented policy; left as-is.
+  - **Deferred to Chunk C (documented):** H-2 — per-line already-refunded **quantity** tracking (e.g. an
+    `order_items.refunded_quantity` or subquery) belongs with execution; today the cumulative money cap is the
+    backstop and no completed partial refunds can exist yet.
+
+**Next (slice 3)**
+- **Chunk B/C:** refund execution — `PaymentServiceContract::refund` call with idempotency key, signed result →
+  reversal `ledger_entry` (−refund, and −commission/clawback for cancellation per ADR-23), flip `requested`→`pending`
+  →`completed|failed`, set order `refunded|partially_refunded`, mark tickets `refunded`. Then payout calc/batch.
+- Out-of-policy `<24h` contest → `dispute` creation + admin mediation (ADR-11).
+
 ## 2026-06-29 — Day 3 (slice 2 · Chunk E): end-to-end purchase-loop proof — closes slice 2
 **Maps to:** Day 3 — prove the whole money path holds together (PLAN.md); core-api `CLAUDE.md` §F.3–5 + §H + §I
 (required order/inventory coverage); ADR-07/09/10/13/14/17. **Chunk E (final) of the 5-chunk slice; A–D done.

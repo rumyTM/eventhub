@@ -21,6 +21,9 @@ interface PaymentRepositoryInterface
     /** The charge attempt row for this order matching the webhook's payment_ref, or null. */
     public function findByExternalRefForOrder(string $orderId, string $externalRef): ?Payment;
 
+    /** The single succeeded charge for an order (the one a refund attaches to), or null. */
+    public function succeededForOrder(string $orderId): ?Payment;
+
     /** Set a payment row's terminal status (succeeded/failed) from the webhook result. */
     public function markStatus(Payment $payment, PaymentStatus $status): void;
 }

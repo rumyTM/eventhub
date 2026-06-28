@@ -16,14 +16,16 @@ return new class extends Migration
         Schema::create('refunds', function (Blueprint $table) {
             $table->ulid('id')->primary();
             $table->foreignUlid('payment_id');
-            $table->unsignedBigInteger('amount');            // minor units
+            $table->unsignedBigInteger('amount');            // minor units, auto-derived (policy% x base)
             $table->string('policy_applied');                // 100|50|0
-            $table->string('status')->default('pending');    // RefundStatus enum
-            $table->string('reason')->nullable();
+            $table->string('status')->default('requested');  // RefundStatus: requested→pending→completed|failed
+            $table->string('reason')->nullable();             // RefundReason category (attendee_requested|event_cancelled)
             $table->timestamps();
 
             $table->index('payment_id', 'idx_refunds_payment_id'); // cumulative-refund validation
-            $table->foreign('payment_id')->references('id')->on('payments')->cascadeOnDelete();
+            // Restrict, not cascade: payments are financial records that are never deleted (ADR-15); a
+            // refund must never silently vanish with its charge, which would destroy the audit trail.
+            $table->foreign('payment_id')->references('id')->on('payments')->restrictOnDelete();
         });
     }
 

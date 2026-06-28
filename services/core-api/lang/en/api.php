@@ -69,6 +69,16 @@ return [
         'webhook_amount_mismatch' => 'The webhook amount or currency does not match the order.',
     ],
 
+    'refunds' => [
+        'requested' => 'Refund requested. It will be processed shortly.',
+        'not_allowed' => 'This order cannot be refunded.',
+        'no_payment' => 'No completed payment was found for this order.',
+        'not_eligible_window' => 'This request is outside the refund window, so no automatic refund applies.',
+        'already_refunded' => 'This order has already been fully refunded.',
+        'invalid_item' => 'A selected ticket does not belong to this order.',
+        'invalid_quantity' => 'The selected quantity exceeds the tickets on this order.',
+    ],
+
     'ticket_types' => [
         'listed' => 'Ticket types retrieved.',
         'retrieved' => 'Ticket type retrieved.',
