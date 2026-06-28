@@ -7,6 +7,7 @@ use App\Enums\LedgerEntryType;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\TicketStatus;
+use App\Exceptions\Payments\OrderSettlementIntegrityException;
 use App\Exceptions\Payments\WebhookAmountMismatchException;
 use App\Helpers\LogHelper;
 use App\Jobs\SendOrderConfirmationJob;
@@ -140,6 +141,15 @@ final class ProcessPaymentWebhookService
         $grossByVendor = [];
 
         foreach ($order->items as $item) {
+            // Resolve the owning vendor FIRST. If the ticket_type/event was soft-deleted between
+            // checkout and settlement, vendor_id is null — issuing tickets while dropping the vendor's
+            // ledger rows would move money with no audit record, so abort the whole transaction loudly
+            // (HIGH-1). Nothing is issued/settled; the order stays pending for reconciliation/expiry.
+            $vendorId = $item->ticketType?->event?->vendor_id;
+            if ($vendorId === null) {
+                throw new OrderSettlementIntegrityException($order->id, $item->id);
+            }
+
             for ($seat = 0; $seat < $item->quantity; $seat++) {
                 $this->tickets->create([
                     'order_id' => $order->id,
@@ -153,10 +163,7 @@ final class ProcessPaymentWebhookService
             // Denormalized sold counter moves on payment success — atomic increment.
             $this->ticketTypes->incrementSold($item->ticket_type_id, $item->quantity);
 
-            $vendorId = $item->ticketType?->event?->vendor_id;
-            if ($vendorId !== null) {
-                $grossByVendor[$vendorId] = ($grossByVendor[$vendorId] ?? 0) + ($item->quantity * $item->unit_price);
-            }
+            $grossByVendor[$vendorId] = ($grossByVendor[$vendorId] ?? 0) + ($item->quantity * $item->unit_price);
         }
 
         $rate = (string) $order->commission_rate; // decimal:4 snapshot (ADR-14)

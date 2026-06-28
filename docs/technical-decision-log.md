@@ -378,6 +378,38 @@
 - Trade-off: a genuinely lost payment row (e.g. data loss before the webhook) leaves a paid-at-gateway charge
   un-fulfilled until reconciliation; acceptable because the recorded gateway success (ADR-25) plus the warning log
   make it detectable, and silently fabricating a paid order would be worse.
+- Related guard (same "refuse to mis-settle" family): if an order item's `ticket_type`/`event` is soft-deleted
+  **between checkout and settlement**, `vendor_id` resolves to null. Rather than issue tickets while silently
+  dropping that vendor's ledger rows (money with no audit record), settlement throws
+  `OrderSettlementIntegrityException` **inside** the transaction — the whole settlement rolls back (no tickets, no
+  `quantity_sold`, no ledger), bubbles as a loud 500, and the order is left `pending` for reconciliation/expiry.
+
+### ADR-27: End-to-end tests fake only the true process boundary
+- Decision: the purchase-loop e2e test (`PurchaseLoopEndToEndTest`) drives **real** core-api code at every hop —
+  real checkout, real `InitiateChargeJob`/`ChargeOrderService`, real webhook receiver/settlement — and fakes only
+  the two hops that genuinely cross a process boundary: the outbound charge POST (`Http::fake`) and the inbound
+  webhook (reconstructed with the exact raw-body HMAC that payment-service's `DeliverChargeResultJob` produces).
+  payment-service's own charge/idempotency/signing logic is proven by **its** suite.
+- Alternatives: (a) spin up both Laravel apps + both DBs in one test runner — rejected: they are separate services
+  with separate databases, so a shared in-process runner would misrepresent the architecture and be brittle; (b) mock
+  core-api internals too — rejected: that would test mocks, not the money path.
+- Why: faking strictly at the wire keeps every core-api decision (locking, idempotency, ledger math, hold lifecycle)
+  under test for real while still exercising the cross-service contract byte-for-byte, so the test proves the loop
+  without falsely coupling two independently-deployed services.
+- Trade-off: the seam between the two services is asserted by contract (matching headers/signature/payload), not by a
+  live socket; a drift in the real wire contract is caught by each service's own contract tests, not this one.
+
+### ADR-28: The hold-expiry sweep is write-guarded by status
+- Decision: `TicketHoldRepository::releaseDueActiveHolds()` re-asserts `status = active` **in the bulk UPDATE
+  itself**, not just in the prior SELECT, before flipping due holds to `released`.
+- Alternatives: update by key alone (the snapshot already filtered to active) — rejected: it races a concurrent
+  settlement.
+- Why: between the SELECT of due holds and the UPDATE, a concurrent payment webhook (holding the order row lock) can
+  legitimately convert a hold to `converted`. Without the status guard the sweep would clobber that committed
+  conversion back to `released`, corrupting the hold lifecycle and detaching issued tickets from a live hold. The
+  guard makes the write a no-op for any hold already converted. Extends ADR-07's read-time-expiry stance into the
+  write path; covered by a dedicated regression test (`the expiry cron never corrupts a settled order`).
+- Trade-off: none of substance — the guard only narrows the UPDATE; the happy path (still-active holds) is unchanged.
 
 ---
 

@@ -263,6 +263,26 @@ class PaymentWebhookTest extends TestCase
         Queue::assertNotPushed(SendOrderConfirmationJob::class);
     }
 
+    public function test_a_ticket_type_soft_deleted_before_settlement_aborts_and_mutates_nothing(): void
+    {
+        ['order' => $order, 'ticketType' => $tt, 'payment' => $payment] = $this->pendingScenario(quantity: 2);
+
+        // The ticket_type (and thus its vendor attribution) is soft-deleted between checkout and the
+        // webhook. Settling would issue tickets while dropping the vendor's ledger rows — money with no
+        // audit record — so the guard aborts the whole transaction (HIGH-1) rather than mis-settle.
+        $tt->delete();
+
+        $this->postWebhook($this->successPayload($order, $payment))->assertStatus(500);
+
+        // Everything rolled back: order still pending, payment NOT marked succeeded, nothing issued.
+        $this->assertSame(OrderStatus::Pending, $order->fresh()->status);
+        $this->assertSame(PaymentStatus::Pending, $payment->fresh()->status);
+        $this->assertSame(0, Ticket::query()->where('order_id', $order->id)->count());
+        $this->assertSame(0, LedgerEntry::query()->where('subject_id', $order->id)->count());
+        $this->assertSame(1, TicketHold::query()->where('order_id', $order->id)->where('status', HoldStatus::Active->value)->count());
+        Queue::assertNotPushed(SendOrderConfirmationJob::class);
+    }
+
     public function test_a_multi_vendor_cart_writes_correct_per_vendor_ledger_rows(): void
     {
         $attendee = Attendee::factory()->create();

@@ -6,6 +6,69 @@
 
 ---
 
+## 2026-06-29 — Day 3 (slice 2 · Chunk E): end-to-end purchase-loop proof — closes slice 2
+**Maps to:** Day 3 — prove the whole money path holds together (PLAN.md); core-api `CLAUDE.md` §F.3–5 + §H + §I
+(required order/inventory coverage); ADR-07/09/10/13/14/17. **Chunk E (final) of the 5-chunk slice; A–D done.
+Slice 2 complete; next is slice 3 (refunds + payouts).**
+
+**What changed (`services/core-api`) — wiring + proof, no new features**
+- **`PurchaseLoopEndToEndTest`** (new, 4 cases) drives the REAL code at every hop and fakes only what crosses a
+  process boundary (core-api and payment-service are separate apps/DBs): checkout (real) → `InitiateChargeJob`
+  → `ChargeOrderService`/`PaymentClient` (charge POST `Http::fake`d) → signed webhook constructed exactly as
+  payment-service's `DeliverChargeResultJob` signs it (HMAC over raw body) → real webhook receiver/settlement.
+  Cases: (1) **success** → pending order+hold, charge posted with bearer+Idempotency-Key, payment ref recorded,
+  signed webhook → order paid, 2 valid unique-QR tickets, `quantity_sold` moved, signed +sale/−commission ledger,
+  confirmation enqueued once; (2) **forced failure** → payment failed, nothing issued/settled, then back-date
+  holds + run `holds:release-expired` → hold released, order expired, inventory never consumed; (3) **expiry-cron
+  vs settled order** → after settlement a late sweep must not flip `converted`→`released` or expire a paid order;
+  (4) **idempotency e2e** → webhook replay + charge re-dispatch produce no double tickets/ledger/`quantity_sold`
+  and exactly one payments row + one confirmation.
+- **Fix (CRITICAL-2 from the loop review):** `TicketHoldRepository::releaseDueActiveHolds()` bulk UPDATE now
+  re-asserts `status = active`, so the expiry cron can't clobber a hold a concurrent webhook just `converted`
+  back to `released` (the snapshot→update window raced a settlement). Pure safety; happy path unchanged.
+
+**financial-logic-reviewer — full loop (checkout → charge → webhook → issuance → ledger) — triaged**
+- **Fixed:** **CRITICAL-2** (above) + a new e2e test proving the cron can't corrupt a settled order. **HIGH-1** —
+  `issueTicketsAndSettle` now resolves the vendor FIRST and throws `OrderSettlementIntegrityException` (new) when a
+  soft-deleted `ticket_type`/`event` makes `vendor_id` null; thrown inside the settlement transaction it rolls the
+  whole thing back (no tickets, no `quantity_sold`, no ledger), bubbles as a loud 500, and leaves the order `pending`
+  for reconciliation/expiry — money never moves without a vendor ledger row. New `PaymentWebhookTest` case proves the
+  abort + zero mutations.
+- **Documented / not changed (with rationale):**
+  - **CRITICAL-1** (null `commission_rate` → settlement throws) — **overstated/unreachable**: every creation path
+    sets it (`CheckoutService` writes the setting-or-`0.10` default; `OrderFactory` sets `'0.1000'`), and the Chunk-D
+    `CalculateCommission` guard fails loud as a backstop. Latent looseness only: the column is `nullable`. *Follow-up
+    (slice 3+):* tighten to `NOT NULL DEFAULT '0.1000'`.
+  - **HIGH-2** (`ResolveTicketPrice` casts `group_discount` via `(float)` before scaling) — safe in practice:
+    `round()` recovers the exact integer for every ≤4-dp rate in [0,1]; the rest of the math is integer. *Follow-up:*
+    parse the decimal string to basis points like `CalculateCommission` for invariant purity.
+  - **NIT-1** `OrderItem` missing `UPDATED_AT = null`; **NIT-2** `SendOrderConfirmationJob` dispatched after-commit
+    (real fix would dispatch inside the txn with `->afterCommit()`; notification-only, lands with that slice);
+    **NIT-3/4** cross-service `idempotency_key` placement + `'0.10'` vs `'0.1000'` cosmetics.
+- **Note:** the reviewer flagged "no `CalculateCommission` unit test" — it **already exists** (`tests/Unit/
+  CalculateCommissionTest.php`, added in Chunk D: half-up + throw-on-blank); the static review just didn't see it.
+
+**Decisions (promoted → `docs/technical-decision-log.md`)**
+- **ADR-27 — End-to-end tests fake only the true process boundary.** With two separate Laravel apps/DBs, the
+  cross-service hops (outbound charge POST, inbound signed webhook) are faked/replicated at the wire while every
+  core-api decision runs for real; payment-service's own charge/idempotency/signing logic is covered by its suite.
+- **ADR-28 — Expiry sweep is write-guarded by status** so it is safe under a race with settlement (extends ADR-07's
+  read-time-expiry stance to the write path).
+- (HIGH-1 settlement-integrity guard recorded under the ADR-26 "refuse to mis-settle" family.)
+
+**Verification** (gate run locally — Laragon, PHP 8.4, sqlite `:memory:`; the assistant environment has no PHP
+runtime, so counts are confirmed on the local run)
+- `composer format` (Pint) — clean. `php artisan test` (core-api) → **118 passed** (was 117; +1 for the new
+  soft-delete-abort guard test): `PurchaseLoopEndToEndTest` (4: success, failure+expiry, expiry-vs-settled,
+  idempotent replay+re-dispatch) + the HIGH-1 guard case in `PaymentWebhookTest`. payment-service suite unchanged →
+  **29 passed (185 assertions)**. *(Assertion total to be confirmed on the local run.)*
+
+**Next (slice 3)**
+- Refunds (policy in core-api, execution in payment-service) + payouts (`CalculatePayout`, threshold, batch,
+  no double-pay). Slice-2 decisions promoted (ADR-27/28; HIGH-1 guard under ADR-26). Remaining documented follow-ups
+  to consider when touching those paths: CRITICAL-1 (tighten `commission_rate` to NOT NULL) and HIGH-2
+  (`ResolveTicketPrice` decimal-string parse).
+
 ## 2026-06-29 — Day 3 (slice 2 · Chunk D): core-api payment webhook receiver — closes the purchase loop
 **Maps to:** Day 3 — core-api applies the payment-service charge result and issues tickets (PLAN.md); core-api
 `CLAUDE.md` §F.3–4 (order→payment→tickets) + §H (inter-service); root `CLAUDE.md` comms/auth matrix; ADR-07

@@ -35,8 +35,13 @@ final class TicketHoldRepository implements TicketHoldRepositoryInterface
             return [];
         }
 
+        // Re-assert status=active in the UPDATE itself: between the snapshot above and here a concurrent
+        // payment webhook (order locked FOR UPDATE) may have flipped some of these holds to `converted`.
+        // Filtering by key alone would clobber that committed conversion back to `released` and corrupt
+        // the hold lifecycle. The status guard makes the write a no-op for any hold already converted.
         TicketHold::query()
             ->whereKey($due->pluck('id')->all())
+            ->where('status', HoldStatus::Active)
             ->update(['status' => HoldStatus::Released]);
 
         return $due->pluck('order_id')->unique()->values()->all();
