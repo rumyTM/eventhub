@@ -4,9 +4,11 @@ namespace App\Providers;
 
 use App\Repositories\Contracts\IdempotencyKeyRepositoryInterface;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
+use App\Repositories\Contracts\RefundRepositoryInterface;
 use App\Repositories\Contracts\TransactionRepositoryInterface;
 use App\Repositories\Eloquent\IdempotencyKeyRepository;
 use App\Repositories\Eloquent\PaymentRepository;
+use App\Repositories\Eloquent\RefundRepository;
 use App\Repositories\Eloquent\TransactionRepository;
 use Illuminate\Support\ServiceProvider;
 
@@ -19,6 +21,7 @@ class RepositoryServiceProvider extends ServiceProvider
     /** @var array<class-string, class-string> */
     public array $bindings = [
         PaymentRepositoryInterface::class => PaymentRepository::class,
+        RefundRepositoryInterface::class => RefundRepository::class,
         IdempotencyKeyRepositoryInterface::class => IdempotencyKeyRepository::class,
         TransactionRepositoryInterface::class => TransactionRepository::class,
     ];

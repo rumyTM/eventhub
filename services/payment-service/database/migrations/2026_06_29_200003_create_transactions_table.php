@@ -24,7 +24,9 @@ return new class extends Migration
     {
         Schema::create('transactions', function (Blueprint $table) {
             $table->ulid('id')->primary();
-            $table->foreignUlid('payment_id')->constrained()->cascadeOnDelete();
+            // Restrict, not cascade: this is the append-only financial ledger — a payment (a financial
+            // record) is never deleted, and its ledger history must never silently vanish with it.
+            $table->foreignUlid('payment_id')->constrained()->restrictOnDelete();
             $table->string('type');                            // TransactionType: charge|refund|payout
             $table->bigInteger('amount');                      // SIGNED minor units (poisha) — direction in the sign
             $table->string('currency', 3)->default('BDT');

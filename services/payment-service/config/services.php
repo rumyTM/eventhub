@@ -60,6 +60,9 @@ return [
 
     'core_api' => [
         'callback_url' => env('CORE_API_WEBHOOK_URL'),
+        // Separate endpoint for the terminal refund result; bearer + webhook_secret are shared with the
+        // charge callback above. Fixed, trusted config value — never accepted from a request (SSRF guard).
+        'refund_callback_url' => env('CORE_API_REFUND_WEBHOOK_URL'),
         'bearer_token' => env('CORE_API_BEARER_TOKEN'),
         'webhook_secret' => env('CORE_API_WEBHOOK_SECRET'),
     ],

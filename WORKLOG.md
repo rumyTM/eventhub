@@ -6,6 +6,69 @@
 
 ---
 
+## 2026-06-30 — Day 4 (slice 3 · Chunk B): refund EXECUTION (payment-service)
+**Maps to:** Day 4 — refunds (PLAN.md); payment-service `CLAUDE.md` §A.4/§B/§D/§E/§G; `docs/system-architecture.md`
+§3.5; root comms/auth matrix; ADR-09 (idempotency), ADR-10 (shared-secret bearer + HMAC webhook), ADR-13 (append-only
+ledger). **Chunk B of slice 3 — mirrors the Chunk-B(charge) path exactly: idempotent create → async gateway resolve →
+signed webhook. Builds on core-api Chunk A (refund request/policy); core-api's refund-webhook receiver is a later chunk.**
+
+**What changed (`services/payment-service`)**
+- **`POST /api/v1/refunds`** behind `EnsureServiceToken` + named `throttle:refunds` — not publicly reachable, mirroring
+  `/payments`. `CreateRefundRequest` validates `payment_ref` (must be a real charge), `amount` (integer, min:1),
+  `currency` (size:3), `reason` (nullable); `Idempotency-Key` is folded from the header → 422 if missing. Returns the
+  **pending** refund (201) via `RefundResource` ({value,label} enums, ISO-8601, never any card field).
+- **`RefundService`** mirrors `ChargeService`: (1) `createRefund` reserves the pending `Refund` idempotently
+  (key→`refund_id`; same key+body replays, different body → 409; concurrent unique-violation resolves as a replay),
+  copying `gateway` + `order_id` from the original charge so the row is self-describing; (2) `resolve` rolls the
+  **same gateway** that processed the charge OUTSIDE the transaction, then locks + re-checks terminal + persists +
+  appends ONE `transactions` row (`type=refund`, **NEGATIVE** signed amount on success, 0 on failure, `gateway_ref`
+  only). Idempotent under the row lock — a retry never re-refunds or double-writes the ledger. Local sanity guard:
+  a single refund may not exceed the original charge (422) — cumulative validation stays core-api's job.
+- **`DeliverRefundResultJob`** mirrors `DeliverChargeResultJob`: persists the result first, then POSTs the terminal
+  result to core-api's refund webhook with `Authorization: Bearer ${CORE_API_BEARER_TOKEN}` **and**
+  `X-Signature = hmac_sha256(RAW_BODY, CORE_API_WEBHOOK_SECRET)` over the exact bytes, plus the forwarded
+  `Log-Trace-ID`; retryable with backoff, `ShouldBeUnique` per refund, graceful `failed()` logging. Payload carries
+  `refund_ref`/`payment_ref`/`order_id`/status/amount only — never card data.
+- **New:** `RefundStatus` enum (`pending|completed|failed` — matches core-api/the §3.5 contract), `refunds` migration
+  (ULID/foreignUlid, `restrictOnDelete` — never delete financial records), `Refund` model + `RefundFactory`,
+  `RefundRepository` (+interface, bound), `RefundExceedsChargeException`. Config: `services.core_api.refund_callback_url`
+  (+`.env.example` `CORE_API_REFUND_WEBHOOK_URL`). Lang `api.refunds.*` added.
+
+**Decision (noted):** the §3.5 doc sketched `/refunds` as a synchronous `200/completed`; I made it **async + pending +
+signed webhook**, identical to the charge path, so both money flows share one shape, one idempotency story, and one
+delivery/retry guarantee. (To promote into the decision log on review if accepted.)
+
+**Verification**
+- `composer format` (Pint) clean. `php artisan test` — **45 passed (242 assertions)**, existing charge suites green.
+- New tests: `RefundEndpointTest` (401/403, missing-key 422, bad-amount 422, unknown payment_ref 422, exceeds-charge
+  422, valid→pending+queued, idempotent same-key returns same refund), `RefundIdempotencyTest` (pending create copies
+  gateway/order; same key+body→same; different body→409), `RefundResolutionTest` (forced success→completed + NEGATIVE
+  ledger row keyed to the charge; forced failure→failed + 0 row; double-resolve writes one row), `RefundWebhookTest`
+  (job resolves then posts a verifying HMAC + bearer + trace; tamper changes the HMAC). `Http::fake`/`Queue::fake`/
+  forced outcome — hermetic.
+- `financial-logic-reviewer` run on the new refund path — triaged:
+  - **Fixed C-1:** refund now executes only against a **succeeded** charge — a pending/failed charge never captured
+    money, so `ChargeNotRefundableException` (422) rejects it (+ endpoint tests for pending & failed charges).
+  - **Fixed C-2:** the `transactions` ledger FK was `cascadeOnDelete` (contradicting append-only/ADR-13 and the
+    `restrictOnDelete` I used on `refunds`) → changed to `restrictOnDelete` so ledger history can't silently vanish.
+  - **Fixed H-1:** refund currency must match the original charge (`RefundCurrencyMismatchException`, 422) — prevents
+    a mixed-currency ledger poisoning reconciliation (+ test).
+  - **Fixed N-3:** dropped `reason` from the idempotency `requestHash` (mirrors the charge path) — a replay differing
+    only in the descriptive `reason` now replays the original refund instead of spuriously 409-ing.
+  - **Added H-4 test:** a delivery that 500s then 200s re-sends the webhook without re-refunding (one ledger row, two
+    delivery attempts) — proves the persist-first guarantee.
+  - **Documented, no change:** **H-2** (shared idempotency-key namespace) — core-api namespaces keys per operation
+    (`charge:…` vs `refund:…`), so a cross-operation collision isn't reachable; a `type` column on the shared index
+    would also touch the charge path, so it's noted as future hardening. **H-3 / N-2** — the redundant-gateway-roll is
+    harmless for the simulator (the inner row-lock re-check discards the loser); a real gateway would need a
+    gateway-level idempotency key (same as the charge path). `RefundResource` keeps parity with `PaymentResource`
+    (no `updated_at`); the webhook already carries `occurred_at`.
+
+**Next (slice 3)**
+- **Chunk C:** core-api refund-webhook receiver — verify HMAC + bearer, idempotently flip the refund `requested→pending`
+  →`completed|failed`, write the reversal `ledger_entry` (−refund; −commission/clawback for cancellation, ADR-23), set
+  order `refunded|partially_refunded`, mark tickets `refunded`; then payout calc/batch.
+
 ## 2026-06-30 — Day 4 (slice 3 · Chunk A): refund REQUEST + POLICY (core-api)
 **Maps to:** Day 4 — refunds/payouts (PLAN.md); core-api `CLAUDE.md` §F Refunds + §H; `docs/erd.md` (refunds,
 ledger_entries); ADR-08/09/11/13/14/20/23. **Chunk A of slice 3 — request + policy only; execution (payment-service
