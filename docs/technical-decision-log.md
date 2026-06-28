@@ -342,6 +342,43 @@
   cache locks across the cart's transaction slightly raises contention on multi-type carts; acceptable because the
   locks are short-lived and the DB row lock (not the cache lock) is the correctness guard (ADR-07).
 
+### ADR-25: Webhook settlement honors only non-expired holds — a late successful charge never oversells
+- Decision: when the payment webhook reports **success**, core-api issues tickets only if the order's reservation is
+  **still live**. `convertActiveForOrder` converts holds that are both `active` **and** `expires_at > now()`, and the
+  service treats a zero-conversion result as "reservation lapsed": it does **not** issue tickets, does **not** move
+  `quantity_sold`, and does **not** write a sale ledger row. The order is left `pending` for the `ReleaseExpiredHolds`
+  safety net to expire. The charge result is still recorded faithfully (the `payments` row → `succeeded`), so a
+  captured-but-unfulfilled charge is discoverable and becomes a **refund/reconciliation concern in a later slice**.
+- Alternatives: (a) convert any `active` hold regardless of `expires_at` and issue — rejected, it would issue against
+  inventory the system freed at read time (ADR-07's read-time expiry), i.e. **oversell**; (b) mark the order paid and
+  let support sort out the missing seats — rejected, worse customer + audit outcome than leaving a recorded
+  succeeded-charge for automated refund.
+- Why: a slow gateway or delayed/retried webhook can confirm a charge after the 15-minute window. ADR-07 already
+  treats a hold past `expires_at` as freed at **read time** (before `ReleaseExpiredHolds` sweeps it), so the only
+  correct behavior on a late success is to refuse issuance and refund. This extends ADR-07's invariant into the
+  webhook path so "no oversell, ever" holds even in the charge-after-expiry race.
+- Trade-off / assumption: the guard uses a count (`convertActiveForOrder(...) === 0`) as an all-or-nothing signal.
+  This is correct **because all holds for one order share a single `expires_at`** (created together at checkout), so
+  they expire simultaneously. If holds could ever expire heterogeneously within one order, this check would let a
+  partially-expired multi-line order through and oversell the lapsed line; a per-line reconciliation of converted
+  count vs. issued quantity would then be required. Documented so a future change to hold lifetimes revisits it.
+
+### ADR-26: No order is marked paid without its payment of record
+- Decision: a **success** webhook whose `payment_ref` matches **no** core-api `payments` row for that order
+  (`findByExternalRefForOrder` → null) is a **logged no-op** — the order is not marked paid, no tickets are issued,
+  no ledger is written. The `external_ref` is persisted at charge initiation (Chunk C), so a legitimate success
+  always has a matching row; a miss means an unreconcilable or misrouted callback.
+- Alternatives: trust the (HMAC-authenticated, amount-matched) payload and settle anyway — rejected: it would create
+  a paid order with no payment record, breaking the audit chain that links money movement to a gateway reference.
+- Why: the webhook is already authenticated and amount-checked, but settling without a payment of record severs the
+  one-to-one audit link between an order's paid state and a recorded charge. Failing loud (warn + no-op) preserves
+  ledger/audit integrity and lets the sender's retry/DLQ surface the anomaly. Pairs with `CalculateCommission`
+  rejecting a blank/non-numeric `commission_rate` rather than silently settling zero commission — both refuse to
+  mis-settle money on bad/missing inputs.
+- Trade-off: a genuinely lost payment row (e.g. data loss before the webhook) leaves a paid-at-gateway charge
+  un-fulfilled until reconciliation; acceptable because the recorded gateway success (ADR-25) plus the warning log
+  make it detectable, and silently fabricating a paid order would be worse.
+
 ---
 
 ## Trade-offs made due to the 5-day constraint

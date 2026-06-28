@@ -3,6 +3,7 @@
 use App\Helpers\LogHelper;
 use App\Http\Middleware\AssignLogTraceId;
 use App\Http\Middleware\EnsureRole;
+use App\Http\Middleware\VerifyPaymentWebhook;
 use App\Support\ApiResponse;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -28,9 +29,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // One correlation id per request, auto-propagated across the queue + services.
         $middleware->api(prepend: [AssignLogTraceId::class]);
 
-        // Role-based route gating.
+        // Role-based route gating + the payment-webhook signature guard (bearer + raw-body HMAC).
         $middleware->alias([
             'role' => EnsureRole::class,
+            'webhook.signature' => VerifyPaymentWebhook::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

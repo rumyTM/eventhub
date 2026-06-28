@@ -64,6 +64,11 @@ return [
         'attendee_profile_required' => 'Your attendee profile is incomplete; please contact support.',
     ],
 
+    'payments' => [
+        'webhook_processed' => 'Payment result processed.',
+        'webhook_amount_mismatch' => 'The webhook amount or currency does not match the order.',
+    ],
+
     'ticket_types' => [
         'listed' => 'Ticket types retrieved.',
         'retrieved' => 'Ticket type retrieved.',

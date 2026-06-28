@@ -54,4 +54,9 @@ final class TicketTypeRepository implements TicketTypeRepositoryInterface
     {
         $ticketType->delete();
     }
+
+    public function incrementSold(string $id, int $by): void
+    {
+        TicketType::query()->whereKey($id)->increment('quantity_sold', $by);
+    }
 }

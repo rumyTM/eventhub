@@ -2,6 +2,7 @@
 
 namespace App\Repositories\Eloquent;
 
+use App\Enums\PaymentStatus;
 use App\Models\Payment;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -30,5 +31,18 @@ final class PaymentRepository implements PaymentRepositoryInterface
         Payment::query()->whereKey($payment->id)->update(['external_ref' => $externalRef]);
 
         return $payment->refresh();
+    }
+
+    public function findByExternalRefForOrder(string $orderId, string $externalRef): ?Payment
+    {
+        return Payment::query()
+            ->where('order_id', $orderId)
+            ->where('external_ref', $externalRef)
+            ->first();
+    }
+
+    public function markStatus(Payment $payment, PaymentStatus $status): void
+    {
+        Payment::query()->whereKey($payment->id)->update(['status' => $status->value]);
     }
 }

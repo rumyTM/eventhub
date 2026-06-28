@@ -50,4 +50,19 @@ return [
         'default_gateway' => env('PAYMENT_DEFAULT_GATEWAY', 'stripe_sim'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Inbound payment webhook (payment-service → core-api callback)
+    |--------------------------------------------------------------------------
+    | The callback is authenticated by a shared-secret bearer token AND an
+    | HMAC-SHA256 signature of the raw body keyed by a SEPARATE secret (ADR-10).
+    | These MUST equal the payment-service's CORE_API_BEARER_TOKEN /
+    | CORE_API_WEBHOOK_SECRET. Secrets live in env only — never commit a real value.
+    */
+
+    'webhook' => [
+        'bearer_token' => env('CORE_API_BEARER_TOKEN'),
+        'secret' => env('CORE_API_WEBHOOK_SECRET'),
+    ],
+
 ];

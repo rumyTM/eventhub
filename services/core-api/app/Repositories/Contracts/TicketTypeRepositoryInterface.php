@@ -32,4 +32,10 @@ interface TicketTypeRepositoryInterface
     public function update(TicketType $ticketType, array $attributes): TicketType;
 
     public function delete(TicketType $ticketType): void;
+
+    /**
+     * Atomically move the denormalized sold counter on payment success: a single
+     * `UPDATE … SET quantity_sold = quantity_sold + N`. Never called at checkout (holds reserve there).
+     */
+    public function incrementSold(string $id, int $by): void;
 }

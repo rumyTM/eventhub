@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\OrderController;
+use App\Http\Controllers\Api\V1\PaymentWebhookController;
 use App\Http\Controllers\Api\V1\TicketTypeController;
 use App\Http\Controllers\Api\V1\VendorController;
 use App\Support\ApiResponse;
@@ -20,6 +21,12 @@ Route::get('health', fn () => ApiResponse::success(
     data: ['service' => 'core-api', 'status' => 'ok'],
     message: __('api.health.ok'),
 ))->name('health');
+
+// --- Internal: payment-service → core-api signed webhook callback (NOT user-authenticated). ---
+// Gated by `webhook.signature` (shared-secret bearer + HMAC-SHA256 over the raw body). Never public.
+Route::post('internal/payments/webhook', [PaymentWebhookController::class, 'handle'])
+    ->middleware('webhook.signature')
+    ->name('internal.payments.webhook');
 
 // --- Auth (public; rate-limited by the named `auth` limiter) ---
 Route::prefix('auth')->name('auth.')->group(function () {

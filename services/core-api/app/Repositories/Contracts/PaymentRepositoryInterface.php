@@ -2,6 +2,7 @@
 
 namespace App\Repositories\Contracts;
 
+use App\Enums\PaymentStatus;
 use App\Models\Payment;
 
 interface PaymentRepositoryInterface
@@ -16,4 +17,10 @@ interface PaymentRepositoryInterface
 
     /** Persist the gateway reference returned by the payment-service (never card data). */
     public function recordExternalRef(Payment $payment, string $externalRef): Payment;
+
+    /** The charge attempt row for this order matching the webhook's payment_ref, or null. */
+    public function findByExternalRefForOrder(string $orderId, string $externalRef): ?Payment;
+
+    /** Set a payment row's terminal status (succeeded/failed) from the webhook result. */
+    public function markStatus(Payment $payment, PaymentStatus $status): void;
 }

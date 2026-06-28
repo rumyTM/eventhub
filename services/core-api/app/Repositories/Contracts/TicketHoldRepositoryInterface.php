@@ -22,4 +22,10 @@ interface TicketHoldRepositoryInterface
      * @return list<string>
      */
     public function releaseDueActiveHolds(): array;
+
+    /**
+     * Convert an order's ACTIVE holds to `converted` on payment success. Returns the number converted.
+     * Only active holds are touched, so a replayed webhook (holds already converted) is a no-op.
+     */
+    public function convertActiveForOrder(string $orderId): int;
 }

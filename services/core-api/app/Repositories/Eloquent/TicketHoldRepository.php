@@ -41,4 +41,17 @@ final class TicketHoldRepository implements TicketHoldRepositoryInterface
 
         return $due->pluck('order_id')->unique()->values()->all();
     }
+
+    public function convertActiveForOrder(string $orderId): int
+    {
+        // Only NON-EXPIRED holds convert. Expiry is enforced at read time (CLAUDE.md §F.2), so a hold
+        // past expires_at has already freed its seats for other buyers even before ReleaseExpiredHolds
+        // sweeps it. Converting it here would issue tickets against inventory the system treats as
+        // available — an oversell. The count tells the caller whether the reservation still held.
+        return TicketHold::query()
+            ->where('order_id', $orderId)
+            ->where('status', HoldStatus::Active)
+            ->where('expires_at', '>', now())
+            ->update(['status' => HoldStatus::Converted]);
+    }
 }

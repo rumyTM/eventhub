@@ -29,6 +29,16 @@ final class OrderRepository implements OrderRepositoryInterface
         return Order::query()->find($id);
     }
 
+    public function lockForUpdate(string $id): ?Order
+    {
+        return Order::query()->whereKey($id)->lockForUpdate()->first();
+    }
+
+    public function markPaid(Order $order): void
+    {
+        $order->update(['status' => OrderStatus::Paid->value]);
+    }
+
     public function markPendingExpired(array $orderIds): int
     {
         if ($orderIds === []) {

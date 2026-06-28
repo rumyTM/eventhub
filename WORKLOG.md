@@ -6,6 +6,68 @@
 
 ---
 
+## 2026-06-29 — Day 3 (slice 2 · Chunk D): core-api payment webhook receiver — closes the purchase loop
+**Maps to:** Day 3 — core-api applies the payment-service charge result and issues tickets (PLAN.md); core-api
+`CLAUDE.md` §F.3–4 (order→payment→tickets) + §H (inter-service); root `CLAUDE.md` comms/auth matrix; ADR-07
+(holds/locking), ADR-09 (idempotency), ADR-10 (signed callback), ADR-13/14 (ledger/commission snapshot), ADR-17
+(orders 1:N payments). **Chunk D of the 5-chunk slice; A–C done, E (frontend wiring) upcoming.**
+
+**What changed (`services/core-api`)**
+- **`POST /api/v1/internal/payments/webhook`** — a service callback (NOT `auth:sanctum`), gated by the new
+  **`VerifyPaymentWebhook` middleware** (`webhook.signature`): shared-secret bearer (`hash_equals`) **then** an
+  HMAC-SHA256 of the **raw body** (`$request->getContent()`, pre-parse) vs `X-Signature` (`hash_equals`). Either
+  failure → 401, nothing downstream runs. Matches payment-service `DeliverChargeResultJob`'s signing exactly.
+- **`ProcessPaymentWebhookService`** — one `DB::transaction` with the order row `lockForUpdate`. Guard order:
+  unknown/non-pending order → 200 no-op (replay-safe); amount+currency must equal the order's → else 422
+  (`WebhookAmountMismatchException`), mutate nothing. On success: payment row → succeeded, holds → converted,
+  one valid QR `Ticket` per held unit, `quantity_sold` incremented **here** (never at checkout), signed per-vendor
+  `sale`(+)/`commission`(−) `ledger_entries` (split via order_item→ticket_type→event→vendor, integer math on the
+  order's snapshotted `commission_rate`), then `SendOrderConfirmationJob` dispatched **after commit**. On failure:
+  payment → failed, order left `pending` for the hold-expiry safety net.
+- **Supporting:** `CalculateCommission` action (pure integer, half-up); `TicketRepository` + `LedgerEntryRepository`
+  (+ contracts, bound in `RepositoryServiceProvider`); `markPaid`/`lockForUpdate` (Order), `markStatus`/
+  `findByExternalRefForOrder` (Payment), `convertActiveForOrder` (TicketHold), `incrementSold` (TicketType);
+  `SendOrderConfirmationJob` (publish point — Redis wiring lands with the notification slice).
+- **Cross-service wiring (Step 0):** core-api `services.webhook.{bearer_token,secret}` ← `CORE_API_BEARER_TOKEN`
+  / `CORE_API_WEBHOOK_SECRET`; **both** services' `.env.example` carry the SAME `[PLACEHOLDER]` keys so one secret
+  is wired per pairing. No real secrets anywhere.
+
+**financial-logic-reviewer — findings triaged**
+- **Fixed:** **C-1/C-2 (oversell)** `convertActiveForOrder` now filters `expires_at > now()`, and the service
+  aborts settlement (no tickets / no `quantity_sold` / order stays pending) when **zero** holds convert — a charge
+  that confirms after the 15-min window can't issue against seats already freed for other buyers. **C-3 (audit
+  integrity)** a success with no matching payment row is now a logged no-op (never mark an order paid with no
+  payment of record). **H-3 (money math)** `CalculateCommission` throws on a blank/non-numeric rate instead of
+  silently charging 0 commission.
+- **Documented / not changed:** **H-1** `payment_ref`↔`external_ref` coupling holds in the simulator (Chunk C
+  contract); **H-2** throwing the 422 inside the transaction is correct (Laravel rolls back); **H-4** mitigated by
+  the existing HMAC + order-scoped payment lookup + amount match; **N-1** tickets have no `created_at` (by design;
+  revisit for dispute audit); **N-2** no rate-limit on the internal route (bearer+HMAC is the guard; a named
+  limiter is optional hardening); **N-4** `SendOrderConfirmationJob` is a stub until the notification slice.
+
+**Decisions (promoted → `docs/technical-decision-log.md`)**
+- **ADR-25 — Settlement honors only NON-EXPIRED holds.** A successful charge arriving after the hold lapsed does
+  **not** issue tickets (would oversell — seats were freed at read time); the order is left `pending` for the expiry
+  net and the recorded success becomes a refund concern in a later slice. Extends ADR-07's read-time-expiry rule into
+  the webhook path. **Assumption documented:** the `convertActiveForOrder(...) === 0` all-or-nothing guard is correct
+  only because all holds for an order share one `expires_at` (created together at checkout); heterogeneous hold
+  lifetimes would require a per-line converted-vs-issued check.
+- **ADR-26 — No order is marked paid without its payment of record** — a success webhook whose `payment_ref` matches
+  no core-api `payments` row is a logged no-op (defence-in-depth beyond the HMAC); pairs with `CalculateCommission`
+  refusing a blank/non-numeric rate rather than mis-settling.
+
+**Verification** (gate run locally — Laragon, PHP 8.4, sqlite `:memory:`; the assistant environment has no PHP
+runtime, so the commit is gated on this confirmed-green local run)
+- `composer format` (Pint) — clean. `php artisan test` (core-api) → **113 passed (359 assertions)**; new
+  `PaymentWebhookTest` (7 incl. bad-sig 401, replay no-op, failure, amount mismatch, **post-expiry no-oversell**,
+  unknown-payment no-op, multi-vendor split) + `CalculateCommissionTest` (4, incl. half-up + throw-on-blank).
+  payment-service suite unchanged → **29 passed (185 assertions)**.
+
+**Next**
+- **Chunk E:** end-to-end purchase-loop test (checkout→charge→webhook→issuance→ledger, forced success + forced
+  failure) and a financial-logic-reviewer pass over the full loop; confirm idempotency end-to-end. Closes slice 2;
+  slice 3 is refunds + payouts.
+
 ## 2026-06-29 — Day 3 (slice 2 · Chunk C): core-api → payment-service charge client + queued InitiateCharge job
 **Maps to:** Day 3 — core-api initiates the charge for a pending order (PLAN.md); core-api `CLAUDE.md` §H
 (inter-service clients) + §F.3 (order→payment); root `CLAUDE.md` comms/auth matrix; ADR-09 (idempotency),
