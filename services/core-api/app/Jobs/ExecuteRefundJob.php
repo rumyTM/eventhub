@@ -30,6 +30,9 @@ class ExecuteRefundJob implements ShouldBeUnique, ShouldQueue
     /** Hold the uniqueness lock across the gateway delay + a few retries. */
     public int $uniqueFor = 600;
 
+    /** Set when handle() permanently fails the refund via 4xx; prevents failed() from calling markExecutionFailed twice. */
+    private bool $permanentlyFailed = false;
+
     public function __construct(
         public readonly string $refundId,
     ) {}
@@ -60,6 +63,7 @@ class ExecuteRefundJob implements ShouldBeUnique, ShouldQueue
                     'refund_id' => $this->refundId,
                     'status' => $e->response->status(),
                 ]);
+                $this->permanentlyFailed = true;
                 $refunds->markExecutionFailed($this->refundId);
                 $this->fail($e);
 
@@ -82,6 +86,10 @@ class ExecuteRefundJob implements ShouldBeUnique, ShouldQueue
             'reason' => $e?->getMessage(),
         ]);
 
-        app(RefundExecutionService::class)->markExecutionFailed($this->refundId);
+        // Skip if handle() already marked it failed via 4xx fast-fail (permanentlyFailed=true) to
+        // avoid the double-call path; mirrors the pattern in ExecutePayoutJob (H-1 reviewer fix).
+        if (! $this->permanentlyFailed) {
+            app(RefundExecutionService::class)->markExecutionFailed($this->refundId);
+        }
     }
 }

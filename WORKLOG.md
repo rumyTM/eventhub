@@ -6,6 +6,76 @@
 
 ---
 
+## 2026-06-30 — Day 4/5 (slice 3 · Chunk F): end-to-end loop tests (refund + payout) + financial-reviewer fixes + ADR-31–36
+**Maps to:** Day 4–5 — payouts/refunds close-out (PLAN.md); core-api `CLAUDE.md` §F/§H/§I; ADR-09 (idempotency),
+ADR-20 (clawback), ADR-27 (e2e tests fake only the process boundary). **Chunk F — CLOSE SLICE 3: wire + proof.
+Full refund and payout loops driven end-to-end; idempotency confirmed under replay; financial-logic-reviewer ran;
+3 findings fixed; 6 ADRs promoted.**
+
+**What changed (`services/core-api`)**
+- **`RefundLoopEndToEndTest`** (new — `tests/Feature/Payments/`) — 5 test cases:
+  - Full success loop: paid order → attendee refund request (real endpoint) → `ExecuteRefundJob` (Http::fake
+    payment-service) → signed refund webhook → refund completed, reversal + commission ledger written, tickets voided
+    (`TicketStatus::Refunded`), order `refunded`, `SendRefundConfirmationJob` queued once.
+  - Forced failure: webhook delivers `failed` → no ledger, no ticket change, order still `paid`.
+  - Webhook replay: signed webhook delivered twice → exactly 2 ledger rows (not 4); notification queued once.
+  - Job re-dispatch after settlement: `runRefundJob()` after webhook already settled → no second payment-service call.
+  - **Clawback path (ADR-20/36, M-2 reviewer fix)**: paid payout + PayoutItem pre-created for the order → refund
+    webhook → asserts `entry_type = 'clawback'` (not `'refund'`) in ledger, commission reversal still written.
+- **`PayoutLoopEndToEndTest`** (new — `tests/Feature/Payouts/`) — 5 test cases:
+  - Full success loop: vendor with eligible ledger balance → `PayoutBuildService::buildForVendor()` → execution
+    (Http::fake) → signed payout webhook → payout `paid`, ONE negative `payout` ledger entry, `settled_at` set on
+    `PayoutItem`, balance = 0, `SendPayoutNotificationJob` queued once.
+  - Forced failure: webhook delivers `failed` → no ledger, balance unchanged (still 90k).
+  - Webhook replay: webhook delivered twice → exactly 1 payout ledger row; balance stays 0.
+  - Execution retry: `execute()` called twice (both send `payout-exec:{id}` key) → one ledger entry after webhook.
+  - Build idempotency: `buildForVendor` same batch/vendor twice → returns the same Payout, count = 1.
+- **`ExecuteRefundJob`** — added `$permanentlyFailed` flag (H-1 reviewer fix); `handle()` sets it on 4xx before
+  calling `markExecutionFailed + fail()`; `failed()` skips `markExecutionFailed` when flag is set. Mirrors the payout
+  job's pattern exactly.
+- **`PayoutRepository::orderSettledPaidForVendor`** — added `->lockForUpdate()` before `->exists()` (H-2 reviewer
+  fix); participates in the refund webhook's `DB::transaction` to serialize clawback-vs-refund classification against
+  a concurrent payout webhook.
+- **`docs/technical-decision-log.md`** — ADR-31–36 added:
+  ADR-31 (`payout_ref` = Payout.id), ADR-32 (status vocab mismatch), ADR-33 (`settled_at` on payout_items),
+  ADR-34 (`restrictOnDelete` on financial FKs), ADR-35 (`$permanentlyFailed` flag), ADR-36 (`lockForUpdate` for
+  clawback classification race).
+
+**Decisions**
+- **`$permanentlyFailed` flag in execution jobs (H-1)** — the `failed()` callback is intended for "retries exhausted";
+  relying on a downstream terminal-state guard for the 4xx double-call was fragile. The explicit flag in the job layer
+  is the payout job's documented pattern; now consistent across both jobs. (→ ADR-35)
+- **`lockForUpdate` on `orderSettledPaidForVendor` (H-2)** — the `Clawback` vs `Refund` ledger entry type is the
+  signal for funds-recovery; a misclassification silently drops a vendor liability from the reconciliation queue.
+  A `lockForUpdate` inside the existing refund-webhook transaction is the correct serialization point. (→ ADR-36)
+- **Clawback e2e test added (M-2)** — the ADR-20 clawback path (refund after paid payout) was tested only at the
+  webhook-unit level (RefundWebhookTest). The e2e test confirms it works end-to-end with the full real-code path.
+- **`RefundLoopEndToEndTest` uses real refund-request endpoint** — authenticates as attendee via `Sanctum::actingAs`,
+  exercises the real policy check (>48h → 100%), discovers the refund from DB; consistent with ADR-27 (fake only the
+  true process boundary).
+- All decisions promoted to `docs/technical-decision-log.md` as ADR-31–36.
+
+**Financial-logic-reviewer findings (Chunk F)**
+- **H-1 (fixed)**: `ExecuteRefundJob::failed()` double-called `markExecutionFailed` on 4xx; absorbed by downstream
+  guard but fragile. Fixed with `$permanentlyFailed` flag.
+- **H-2 (fixed)**: `orderSettledPaidForVendor` unlocked read inside webhook transaction — clawback-vs-refund race.
+  Fixed with `lockForUpdate()`.
+- **M-2 (fixed)**: clawback path uncovered by e2e tests. Fixed with the new
+  `test_refund_after_paid_payout_writes_clawback_ledger_not_a_refund_reversal` test.
+- **M-3/L-1/L-2/L-3/N-1/N-2/N-3**: documented in ADRs or noted as acceptable trade-offs; no code change needed.
+- **Critical**: none found. No path unconditionally double-charges, double-pays, or oversells.
+
+**Verification**
+- `composer format` (Pint) clean — auto-removed one unused import from `PayoutLoopEndToEndTest`; no other changes.
+- core-api: **210 passed (791 assertions)**, all suites green, zero regressions (up from 200 before Chunk F).
+- payment-service: unchanged (61 passed / 303 assertions from Chunk E).
+
+**Next**
+- Commit Chunks E + F (pending explicit user approval) with gitmoji message below.
+- Proceed to Slice 4 (frontend + admin panel) or continue with remaining backend features per PLAN.md.
+
+---
+
 ## 2026-06-30 — Day 4 (slice 3 · Chunk E): payout EXECUTION loop — payment-service endpoint + core-api webhook + tests
 **Maps to:** Day 4 — payouts (PLAN.md); payment-service `CLAUDE.md` §A/§C/§D/§G; core-api `CLAUDE.md` §F/§H;
 ADR-09 (idempotency), ADR-10 (inter-service auth: shared-secret bearer + HMAC-SHA256 body signature), ADR-13 (vendor

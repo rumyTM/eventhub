@@ -470,6 +470,93 @@
   (ADR-29) plus the append-only ledger keep the books reconcilable. Persisting `refund_items` is the documented
   follow-up that makes partial refunds exact end-to-end.
 
+### ADR-31: `payout_ref` sent to payment-service IS the core-api Payout.id (the correlation key)
+- Decision: When core-api calls `payment-service POST /api/v1/payouts`, the `payout_ref` field in the request body is
+  set to `Payout::id` (the ULID primary key). Payment-service stores and echoes it back in the signed webhook as
+  `payout_ref`, allowing `ProcessPayoutWebhookService` to find the payout with a single indexed lookup
+  (`findForUpdate($payload['payout_ref'])`) — no separate correlation table needed.
+- Alternatives: (a) a separate `external_ref` column on `payouts` populated after the payment-service ack — an extra
+  column and a race between the ack-write and the webhook; (b) use the idempotency key as the correlation handle
+  (`payout-exec:{id}`) — also indexed, but requires a second lookup path.
+- Why: The ULID ID is already unique, indexed, and stable; using it directly as `payout_ref` is zero-overhead
+  correlation with no additional state. The payment-service is a simulator we own, so the contract is intentional and
+  documented.
+- Trade-off accepted: tight coupling between core-api's Payout ID format and payment-service's webhook schema. In a
+  real third-party gateway integration the `payout_ref` would be a gateway-assigned token and a reverse-lookup column
+  would be needed.
+
+### ADR-32: Payment-service status vocabulary mismatch (`completed` → `paid`) is intentional and mapped at the boundary
+- Decision: Payment-service uses the status `completed` for a successful payout (its finite states: pending /
+  completed / failed). Core-api maps `completed → PayoutStatus::Paid` inside `ProcessPayoutWebhookService::handle()`
+  — never stored as `completed` in core-api's `payouts.status` column.
+- Alternatives: align the two status vocabularies — would require changing either payment-service's enum (its own DB
+  column and HTTP contract) or core-api's (which surfaces to vendors in the API response).
+- Why: The services have different domain languages. Core-api's `paid` is vendor-facing ("you got paid");
+  payment-service's `completed` is gateway-facing ("the gateway transaction completed"). Mapping at the inbound
+  boundary is the cleanest seam and keeps each service's model internally consistent.
+- Trade-off accepted: future maintainers must know to look in `ProcessPayoutWebhookService` for the mapping; it is
+  commented inline and covered by the end-to-end loop tests.
+
+### ADR-33: `settled_at` on `payout_items` is set only on webhook-confirmed payout success
+- Decision: Added a nullable `timestamp('settled_at')` column to `payout_items`. It is written by
+  `PayoutRepository::markItemsSettled()` — called only inside the `ProcessPayoutWebhookService` transaction on a
+  `completed` webhook, never by the build or execution services. `whereNull('settled_at')` makes the update idempotent
+  on replay.
+- Alternatives: infer settlement from `payouts.status = paid` — loses per-item granularity and makes the data model
+  ambiguous if a payout is ever split or partially applied.
+- Why: A per-item settlement timestamp proves exactly when each order's revenue was disbursed, independently of the
+  parent payout's status. This is the authoritative signal for the clawback classifier: a `PayoutItem` with a non-null
+  `settled_at` on a `paid` payout proves money has already been transferred for that order — any subsequent refund is a
+  clawback (ADR-20/36). Useful for dispute resolution and manual reconciliation.
+- Trade-off accepted: the `markItemsSettled` bulk `UPDATE` participates in the transaction but does not individually
+  lock each `payout_item` row (only the parent payout is row-locked). In practice there is one writer path; the
+  `whereNull` guard is the idempotency backstop.
+
+### ADR-34: `restrictOnDelete()` on financial table foreign keys instead of `cascadeOnDelete()`
+- Decision: `payouts.vendor_id` and `payout_items.order_id` FKs use `RESTRICT` (no cascade). Deleting a vendor or
+  order that has associated payout rows raises a DB-level constraint error.
+- Alternatives: `CASCADE` (child rows deleted automatically — silently destroys the audit trail); `SET NULL` (also
+  loses the association).
+- Why: Financial audit tables must never silently lose rows. A payout row represents a real money movement; cascading
+  on vendor or order deletion would silently erase the financial history. `RESTRICT` is the correct default for any
+  append-only financial ledger: it fails loudly rather than destroying audit evidence.
+- Trade-off accepted: hard-deleting a vendor or order now requires explicitly archiving or reassigning payout rows
+  first. `SoftDeletes` on `Vendor` and `Order` means this is rarely a real-world concern; hard-deletes in a financial
+  system are an anti-pattern anyway.
+
+### ADR-35: `$permanentlyFailed` flag in execution jobs prevents double-`markExecutionFailed` on 4xx fast-fail
+- Decision: Both `ExecuteRefundJob` and `ExecutePayoutJob` carry a private `$permanentlyFailed = false` flag. When a
+  payment-service 4xx triggers a fast-fail in `handle()`, the flag is set to `true` before calling
+  `markExecutionFailed` and `$this->fail()`. The `failed()` callback checks the flag and skips its own
+  `markExecutionFailed` call when `handle()` already ran it (H-1 financial reviewer finding).
+- Alternatives: rely on the terminal-state guard inside `markExecutionFailed` — the second call finds the
+  refund/payout already `Failed` and returns silently. This was the initial implementation.
+- Why: Relying on a downstream guard for correctness creates fragile coupling across layers. The `failed()` callback
+  has a defined contract ("all retries exhausted") that is distinct from the 4xx fast-fail path. The flag makes the
+  intent explicit in the job layer, eliminates the silent second DB round-trip, and is the pattern documented in the
+  payout job that the refund job should mirror for consistency.
+- Trade-off accepted: the flag is an instance variable; it works correctly because Laravel's queue worker calls
+  `failed()` on the same object instance as `handle()` within a single job pickup. If that internals behaviour ever
+  changes, the terminal-state guard inside `markExecutionFailed` remains the backstop.
+
+### ADR-36: `lockForUpdate()` on `orderSettledPaidForVendor` serializes clawback-vs-refund ledger classification
+- Decision: `PayoutRepository::orderSettledPaidForVendor()` uses `->lockForUpdate()->exists()`. It is called inside
+  the `ProcessRefundWebhookService` DB transaction (which already holds an order-row lock), so the additional lock
+  participates in the same serialization scope and closes the window where a concurrent payout webhook could flip
+  `status → paid` between the settlement read and the ledger entry write (H-2 financial reviewer finding).
+- Alternatives: (a) read without lock, accept the narrow race — the balance math is correct either way (both `Refund`
+  and `Clawback` are negative for the vendor share); only the ledger entry type would occasionally be wrong; (b)
+  classify the refund type at request-time rather than webhook-time — not safe because the payout can settle
+  concurrently while the refund is in-flight.
+- Why: The `Clawback` vs `Refund` entry type is the signal used to identify vendor liabilities for funds-recovery.
+  A misclassification silently drops a vendor debt from the reconciliation queue — not a cosmetic error. Serializing
+  with `lockForUpdate` within the existing transaction is the correct fix; the performance cost (one additional index
+  scan + row lock per refund webhook, inside an already-open transaction) is negligible.
+- Trade-off accepted: the `lockForUpdate` is on `payout_items` rows (matching the `WHERE order_id = ?` filter); it
+  does not individually lock the parent `payouts` row selected by `whereHas`. The order-row lock already prevents new
+  `payout_items` for this order being inserted while the refund transaction runs, so the effective serialization is
+  correct for the current schema and concurrency pattern.
+
 ---
 
 ## Trade-offs made due to the 5-day constraint

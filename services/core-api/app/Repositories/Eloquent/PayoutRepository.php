@@ -13,11 +13,15 @@ final class PayoutRepository implements PayoutRepositoryInterface
 {
     public function orderSettledPaidForVendor(string $orderId, string $vendorId): bool
     {
+        // lockForUpdate() participates in the refund webhook's DB::transaction, serialising the
+        // clawback-vs-refund classification read against any concurrent payout webhook that would
+        // flip status → paid in the same window (H-2 reviewer fix).
         return PayoutItem::query()
             ->where('order_id', $orderId)
             ->whereHas('payout', fn ($q) => $q
                 ->where('vendor_id', $vendorId)
                 ->where('status', PayoutStatus::Paid->value))
+            ->lockForUpdate()
             ->exists();
     }
 
