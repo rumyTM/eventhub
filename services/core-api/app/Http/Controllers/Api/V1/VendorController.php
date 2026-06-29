@@ -14,6 +14,12 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
+/**
+ * @group Vendors / KYC
+ *
+ * Vendor onboarding and KYC (Know Your Customer) review. Vendors must be KYC-verified
+ * before they can publish events or receive payouts.
+ */
 final class VendorController extends Controller
 {
     private const PER_PAGE = 25;
@@ -22,7 +28,17 @@ final class VendorController extends Controller
         private readonly VendorService $vendors,
     ) {}
 
-    /** Vendor: submit (or re-submit) the authenticated vendor's own KYC for review. */
+    /**
+     * Submit KYC (vendor)
+     *
+     * Submit or re-submit the authenticated vendor's KYC documents for admin review.
+     * KYC status transitions: `pending → verified` (admin approves) or `pending → rejected`.
+     * Only `pending` and `rejected` vendors may re-submit.
+     *
+     * @group Vendor
+     * @subgroup KYC
+     * @authenticated
+     */
     public function submitKyc(SubmitKycRequest $request): JsonResponse
     {
         LogHelper::landingLog($request, __CLASS__.' - '.__FUNCTION__);
@@ -39,7 +55,16 @@ final class VendorController extends Controller
         );
     }
 
-    /** Admin: list vendors awaiting a KYC decision. */
+    /**
+     * List pending vendors (admin)
+     *
+     * Paginated list of vendors with `kyc_status=pending`, awaiting an admin decision.
+     *
+     * @group Admin
+     * @subgroup Vendors
+     * @authenticated
+     * @response 200 scenario="Success" {"success":true,"message":"Vendors pending KYC review retrieved.","data":{"vendors":[{"id":"01JWXYZ0000000000000VENDOR","business_name":"Acme Events Ltd","legal_name":null,"trade_license_no":null,"contact_phone":"+8801711000000","address":null,"kyc_status":{"value":"pending","label":"Pending"},"submitted_at":"2026-06-30T09:00:00+00:00","reviewed_at":null,"rejection_reason":null,"kyc_documents":[],"created_at":"2026-06-30T09:00:00+00:00"}],"pagination":{"current_page":1,"per_page":25,"total":1,"last_page":1}},"errors":null}
+     */
     public function pending(Request $request): JsonResponse
     {
         LogHelper::landingLog($request, __CLASS__.' - '.__FUNCTION__);
@@ -57,7 +82,16 @@ final class VendorController extends Controller
         );
     }
 
-    /** Admin: verify a pending vendor (pending → verified). */
+    /**
+     * Verify vendor (admin)
+     *
+     * Approve a vendor's KYC submission (`pending → verified`). Verified vendors can publish
+     * events and receive payouts.
+     *
+     * @group Admin
+     * @subgroup Vendors
+     * @authenticated
+     */
     public function verify(Request $request, Vendor $vendor): JsonResponse
     {
         LogHelper::landingLog($request, __CLASS__.' - '.__FUNCTION__);
@@ -72,7 +106,16 @@ final class VendorController extends Controller
         );
     }
 
-    /** Admin: reject a pending vendor with a reason (pending → rejected). */
+    /**
+     * Reject vendor (admin)
+     *
+     * Reject a vendor's KYC submission (`pending → rejected`) with a mandatory reason.
+     * The vendor may re-submit after addressing the stated issues.
+     *
+     * @group Admin
+     * @subgroup Vendors
+     * @authenticated
+     */
     public function reject(RejectVendorRequest $request, Vendor $vendor): JsonResponse
     {
         LogHelper::landingLog($request, __CLASS__.' - '.__FUNCTION__);

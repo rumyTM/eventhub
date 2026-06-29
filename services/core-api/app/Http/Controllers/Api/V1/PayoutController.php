@@ -17,11 +17,16 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Admin payout endpoints.
+ * @group Payouts
  *
- * GET  /admin/payouts               — paginated list of all payouts (filterable by status/vendor).
- * POST /admin/payouts/build         — trigger a payout-build run (decide-only; no money moves).
- * POST /admin/payouts/{payout}/execute — dispatch ExecutePayoutJob for a pending/approved payout.
+ * Admin payout management. Payouts are calculated per-vendor after their events complete.
+ * Net = gross_sales − (gross × commission_rate). A minimum threshold is enforced; below it the
+ * payout rolls to the next cycle. Execution is asynchronous — the terminal result arrives via
+ * the payment-service webhook.
+ *
+ * GET  /admin/payouts               — paginated list (filterable by status/vendor).
+ * POST /admin/payouts/build         — calculate pending settlements (decide-only; no money moves).
+ * POST /admin/payouts/{payout}/execute — dispatch payment to the vendor.
  */
 final class PayoutController extends Controller
 {
@@ -31,9 +36,18 @@ final class PayoutController extends Controller
     ) {}
 
     /**
-     * Dispatch ExecutePayoutJob for a payout that is `pending` or `approved`. The job flips it to
-     * `processing` and POSTs to payment-service; the terminal result arrives via the signed webhook.
-     * Idempotent: re-dispatching the same payout reuses the deterministic idempotency key (ADR-09).
+     * Execute payout
+     *
+     * Dispatch payment for a `pending` or `approved` payout. The job transitions the payout to
+     * `processing` and calls payment-service; the terminal result (`paid` or `failed`) arrives
+     * via the signed payment-service webhook. Idempotent — re-dispatching the same payout
+     * reuses the deterministic idempotency key.
+     *
+     * @group Admin
+     * @subgroup Payouts
+     * @authenticated
+     * @response 200 scenario="Queued" {"success":true,"message":"Payout execution queued.","data":{"payout":{"id":"01J000000000000DEMOPAYOUT","vendor_id":"01J000000000000DEMOVENDOR","gross":500000,"commission":50000,"net":450000,"currency":"BDT","status":{"value":"pending","label":"Pending"},"batch_id":"01J0BATCHID","created_at":"2026-06-30T09:00:00Z"}},"errors":null}
+     * @response 409 scenario="Not executable" {"success":false,"message":"This payout cannot be executed in its current status.","data":null,"errors":null}
      */
     public function execute(Request $request, Payout $payout): JsonResponse
     {
@@ -56,6 +70,16 @@ final class PayoutController extends Controller
         );
     }
 
+    /**
+     * List payouts (admin)
+     *
+     * Paginated list of all vendor payouts. Filter by `status` and/or `vendor_id`.
+     *
+     * @group Admin
+     * @subgroup Payouts
+     * @authenticated
+     * @response 200 scenario="Success" {"success":true,"message":"Payouts retrieved.","data":{"payouts":[{"id":"01JWXYZ000000000000PAYOUT1","vendor_id":"01JWXYZ0000000000000VENDOR","batch_id":"2026-09-20","currency":"BDT","gross":500000,"commission":50000,"net":450000,"payable":450000,"reserved_refund":0,"status":{"value":"pending","label":"Pending"},"created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}],"meta":{"current_page":1,"last_page":1,"total":1,"per_page":20}},"errors":null}
+     */
     public function index(ListPayoutsRequest $request): JsonResponse
     {
         LogHelper::landingLog($request, __CLASS__.' - '.__FUNCTION__);
@@ -81,6 +105,18 @@ final class PayoutController extends Controller
         );
     }
 
+    /**
+     * Build payout batch (admin)
+     *
+     * Calculate pending settlements for all eligible vendors (or a single vendor if `vendor_id`
+     * is provided). This is a **decide-only** step — it creates `Payout` records but moves no money.
+     * Call `/admin/payouts/{payout}/execute` to actually disburse. Idempotent per `batch_id`.
+     *
+     * @group Admin
+     * @subgroup Payouts
+     * @authenticated
+     * @response 201 scenario="Batch built" {"success":true,"message":"1 payout(s) built.","data":{"batch_id":"2026-06-30","count":1,"payouts":[{"id":"01J000000000000DEMOPAYOUT","vendor_id":"01J000000000000DEMOVENDOR","gross":500000,"commission":50000,"net":450000,"currency":"BDT","status":{"value":"pending","label":"Pending"},"batch_id":"2026-06-30","created_at":"2026-06-30T09:00:00Z"}]},"errors":null}
+     */
     public function build(BuildPayoutsRequest $request): JsonResponse
     {
         LogHelper::landingLog($request, __CLASS__.' - '.__FUNCTION__);

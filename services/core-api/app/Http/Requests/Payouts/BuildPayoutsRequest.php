@@ -33,4 +33,15 @@ class BuildPayoutsRequest extends FormRequest
             'vendor_id.exists' => __('api.payouts.vendor_not_found'),
         ];
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'batch_id'  => ['example' => '2026-09-20'],
+            'vendor_id' => ['example' => 'no-example'],
+        ];
+    }
 }

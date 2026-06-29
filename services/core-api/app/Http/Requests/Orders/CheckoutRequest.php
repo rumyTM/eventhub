@@ -43,4 +43,16 @@ class CheckoutRequest extends FormRequest
     {
         $this->merge(['idempotency_key' => $this->header('Idempotency-Key')]);
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'idempotency_key'           => ['example' => 'No-example'],
+            'items.*.ticket_type_id'    => ['example' => '01JWXYZ0000000000000TICKET1'],
+            'items.*.quantity'          => ['example' => 2],
+        ];
+    }
 }

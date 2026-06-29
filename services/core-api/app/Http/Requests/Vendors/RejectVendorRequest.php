@@ -20,4 +20,14 @@ class RejectVendorRequest extends FormRequest
             'rejection_reason' => ['required', 'string', 'max:1000'],
         ];
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'rejection_reason' => ['example' => 'Submitted documents are blurry or incomplete. Please re-upload a clearer copy of your trade license.'],
+        ];
+    }
 }

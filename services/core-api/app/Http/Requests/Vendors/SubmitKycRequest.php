@@ -26,4 +26,15 @@ class SubmitKycRequest extends FormRequest
             'documents.*.storage_path' => ['required', 'string', 'max:1024'],
         ];
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'documents.*.type'          => ['example' => 'trade_license'],
+            'documents.*.storage_path'  => ['example' => 'kyc/vendors/01JWXYZ0000VENDOR/trade_license.pdf'],
+        ];
+    }
 }

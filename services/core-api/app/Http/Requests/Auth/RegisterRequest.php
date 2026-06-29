@@ -53,4 +53,20 @@ class RegisterRequest extends FormRequest
             $this->merge(['email' => mb_strtolower(trim($this->email))]);
         }
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'name'                  => ['example' => 'Alice Smith'],
+            'email'                 => ['example' => 'alice@example.com'],
+            'password'              => ['example' => 'password123'],
+            'password_confirmation' => ['example' => 'password123'],
+            'role'                  => ['example' => 'vendor'],
+            'business_name'         => ['example' => 'Acme Events Ltd'],
+            'phone'                 => ['example' => '+8801711000000'],
+        ];
+    }
 }

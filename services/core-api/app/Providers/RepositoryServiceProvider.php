@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\NotificationPublisherContract;
 use App\Contracts\PaymentServiceContract;
 use App\Repositories\Contracts\AttendeeRepositoryInterface;
 use App\Repositories\Contracts\EventRepositoryInterface;
@@ -31,6 +32,7 @@ use App\Repositories\Eloquent\TicketRepository;
 use App\Repositories\Eloquent\TicketTypeRepository;
 use App\Repositories\Eloquent\UserRepository;
 use App\Repositories\Eloquent\VendorRepository;
+use App\Services\Notification\RedisNotificationPublisher;
 use App\Services\Payments\PaymentClient;
 use Illuminate\Support\ServiceProvider;
 
@@ -57,8 +59,9 @@ class RepositoryServiceProvider extends ServiceProvider
         TicketRepositoryInterface::class => TicketRepository::class,
         LedgerEntryRepositoryInterface::class => LedgerEntryRepository::class,
 
-        // Inter-service client (CLAUDE.md §H) — fakeable in tests via the contract.
+        // Inter-service clients (CLAUDE.md §H) — fakeable in tests via the contract.
         PaymentServiceContract::class => PaymentClient::class,
+        NotificationPublisherContract::class => RedisNotificationPublisher::class,
     ];
 
     public function register(): void

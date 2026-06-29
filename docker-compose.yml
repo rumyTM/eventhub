@@ -1,6 +1,10 @@
 # EventHub — full stack. `cp .env.example .env`, fill secrets, then `docker compose up -d --build`.
-# Each service Dockerfile is created during /scaffold-service. Until a service is scaffolded its build will no-op or
-# fail — bring services up incrementally as you build them. Secrets come from .env only; never commit real values.
+#
+# Services are brought up incrementally as they are scaffolded:
+#   Default profile  → mysql · redis · core-api (+ worker + scheduler) · payment-service  (all implemented)
+#   --profile full   → adds notification-service and frontend  (scaffold them first — each needs a Dockerfile)
+#
+# Secrets come from .env only; never commit real values.
 
 services:
   mysql:
@@ -81,7 +85,8 @@ services:
       mysql: { condition: service_healthy }
 
   notification-service:
-    build: ./services/notification-service
+    build: ./services/notification-service   # scaffold this service first (`/scaffold-service notification-service`)
+    profiles: [full]
     ports:
       - "8002:8002"
     env_file: .env
@@ -96,7 +101,8 @@ services:
       mysql: { condition: service_healthy }
 
   frontend:
-    build: ./frontend
+    build: ./frontend                        # scaffold this service first (`/scaffold-service frontend`)
+    profiles: [full]
     ports:
       - "3000:3000"
     environment:

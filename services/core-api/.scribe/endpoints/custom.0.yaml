@@ -1,0 +1,40 @@
+# To include an endpoint that isn't a part of your Laravel app (or belongs to a vendor package),
+# you can define it in a custom.*.yaml file, like this one.
+# Each custom file should contain an array of endpoints. Here's an example:
+# See https://scribe.knuckles.wtf/laravel/documenting/custom-endpoints#extra-sorting-groups-in-custom-endpoint-files for more options
+
+- httpMethods:
+    - GET
+  uri: api/v1/health
+  metadata:
+    groupName: Public
+    title: Health check
+    description: 'Returns the service name and a liveness status. No authentication required. Safe to poll.'
+    authenticated: false
+  headers:
+    Content-Type: application/json
+    Accept: application/json
+  responses:
+    - status: 200
+      description: 'Service is up.'
+      content: {"success":true,"message":"core-api is healthy.","data":{"service":"core-api","status":"ok"},"errors":null}
+
+- httpMethods:
+    - GET
+  uri: api/v1/admin/ping
+  metadata:
+    groupName: Admin
+    subgroup: System
+    title: Admin ping
+    description: 'Liveness check scoped to the admin area. Verifies the bearer token carries the admin role.'
+    authenticated: true
+  headers:
+    Content-Type: application/json
+    Accept: application/json
+  responses:
+    - status: 200
+      description: 'Admin area reachable.'
+      content: {"success":true,"message":"ok","data":{"area":"admin"},"errors":null}
+    - status: 401
+      description: 'Unauthenticated.'
+      content: {"success":false,"message":"Unauthenticated.","data":null,"errors":null}

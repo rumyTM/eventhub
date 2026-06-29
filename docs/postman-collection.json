@@ -1,0 +1,713 @@
+{
+    "variable": [
+        {
+            "id": "baseUrl",
+            "key": "baseUrl",
+            "type": "string",
+            "name": "string",
+            "value": "http:\/\/localhost"
+        }
+    ],
+    "info": {
+        "name": "EventHub Core API",
+        "_postman_id": "0d1ee5db-9b71-411d-9628-6f0f97d262fd",
+        "description": "REST API for the EventHub multi-vendor event ticketing and payout platform. Vendors create events and sell tickets; attendees browse and buy; admins approve vendors, manage refunds, and disburse payouts. Every financial operation is auditable, idempotent, and resilient to partial failure.",
+        "schema": "https:\/\/schema.getpostman.com\/json\/collection\/v2.1.0\/collection.json",
+        "version": "1.0.0"
+    },
+    "item": [
+        {
+            "name": "Auth",
+            "description": "\nRegister, log in, and manage the current session.",
+            "item": [
+                {
+                    "name": "Register",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/register",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/register"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"name\":\"Alice Smith\",\"email\":\"alice@example.com\",\"password\":\"password123\",\"role\":\"vendor\",\"business_name\":\"Acme Events Ltd\",\"phone\":\"+8801711000000\",\"password_confirmation\":\"password123\"}"
+                        },
+                        "description": "Create a new vendor or attendee account. Returns a Sanctum bearer token on success.\nAdmin accounts are provisioned via seeder only \u2014 the `admin` role is not self-assignable.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 201,
+                            "body": "{\"success\":true,\"message\":\"Account created successfully.\",\"data\":{\"user\":{\"id\":\"01J0000000000000000VENDOR\",\"name\":\"Acme Events Ltd\",\"email\":\"vendor@eventhub.test\",\"role\":{\"value\":\"vendor\",\"label\":\"Vendor\"},\"created_at\":\"2026-06-30T10:00:00Z\"},\"token\":\"[PLACEHOLDER_TOKEN]\"},\"errors\":null}",
+                            "name": "Vendor registered"
+                        }
+                    ]
+                },
+                {
+                    "name": "Login",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/login",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/login"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"email\":\"gbailey@example.net\",\"password\":\"|]|{+-\"}"
+                        },
+                        "description": "Authenticate and receive a Sanctum bearer token. Use the returned token in an\n`Authorization: Bearer {token}` header on subsequent requests.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\":true,\"message\":\"Logged in successfully.\",\"data\":{\"user\":{\"id\":\"01J0000000000000000VENDOR\",\"name\":\"Acme Events Ltd\",\"email\":\"vendor@eventhub.test\",\"role\":{\"value\":\"vendor\",\"label\":\"Vendor\"},\"created_at\":\"2026-06-30T10:00:00Z\"},\"token\":\"[PLACEHOLDER_TOKEN]\"},\"errors\":null}",
+                            "name": "Success"
+                        },
+                        {
+                            "header": [],
+                            "code": 401,
+                            "body": "{\"success\":false,\"message\":\"The provided credentials are incorrect.\",\"data\":null,\"errors\":null}",
+                            "name": "Bad credentials"
+                        }
+                    ]
+                },
+                {
+                    "name": "Logout",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/logout",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/logout"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Revoke the current Sanctum token. The token becomes immediately invalid."
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Events",
+            "description": "\nBrowse the event catalog and manage vendor events.\nPublic read endpoints require no authentication. Write endpoints require a `vendor` role token.",
+            "item": [
+                {
+                    "name": "Create event",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/events",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/events"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"title\":\"b\",\"description\":\"Et animi quos velit et fugiat.\",\"timezone\":\"Antarctica\\\/McMurdo\",\"starts_at\":\"2026-06-30T07:48:08\",\"ends_at\":\"2052-07-23\",\"capacity\":22}"
+                        },
+                        "description": "Create a new event draft owned by the authenticated vendor.\nThe vendor must be KYC-verified before the event can be published."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update event",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/events\/:id",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/events\/:id",
+                            "variable": [
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": "architecto",
+                                    "description": "The ID of the event."
+                                }
+                            ]
+                        },
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"title\":\"b\",\"description\":\"Et animi quos velit et fugiat.\",\"timezone\":\"America\\\/Coyhaique\",\"starts_at\":\"2026-06-30T07:48:08\",\"ends_at\":\"2026-06-30T07:48:08\",\"capacity\":26,\"status\":\"published\"}"
+                        },
+                        "description": "Update a vendor's own event. Status transitions (e.g. draft \u2192 published) are enforced by\nthe event lifecycle policy (e.g. vendor must be KYC-verified to publish)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delete event",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/events\/:id",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/events\/:id",
+                            "variable": [
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": "architecto",
+                                    "description": "The ID of the event."
+                                }
+                            ]
+                        },
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Soft-delete a vendor's own draft event. Published or ongoing events cannot be deleted\n(cancel them instead via the status transition)."
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Ticket Types",
+            "description": "\nManage ticket types for an event. Public reads; vendor-role writes (own events only).",
+            "item": [
+                {
+                    "name": "Create ticket type",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/events\/:event_id\/ticket-types",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/events\/:event_id\/ticket-types",
+                            "variable": [
+                                {
+                                    "id": "event_id",
+                                    "key": "event_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the event."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"kind\":\"early_bird\",\"price\":27,\"currency\":\"ngz\",\"quantity_total\":27,\"group_size\":18,\"group_discount\":76,\"sales_start\":\"2026-06-30T07:48:08\",\"sales_end\":\"2052-07-23\"}"
+                        },
+                        "description": "Add a ticket type (general, VIP, early-bird, or group-bundle) to the vendor's own event."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update ticket type",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/events\/:event_id\/ticket-types\/:ticketType_id",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/events\/:event_id\/ticket-types\/:ticketType_id",
+                            "variable": [
+                                {
+                                    "id": "event_id",
+                                    "key": "event_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the event."
+                                },
+                                {
+                                    "id": "ticketType_id",
+                                    "key": "ticketType_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the ticketType."
+                                }
+                            ]
+                        },
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"kind\":\"vip\",\"price\":27,\"currency\":\"ngz\",\"quantity_total\":27,\"group_size\":18,\"group_discount\":76,\"sales_start\":\"2026-06-30T07:48:08\",\"sales_end\":\"2026-06-30T07:48:08\"}"
+                        },
+                        "description": ""
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delete ticket type",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/events\/:event_id\/ticket-types\/:ticketType_id",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/events\/:event_id\/ticket-types\/:ticketType_id",
+                            "variable": [
+                                {
+                                    "id": "event_id",
+                                    "key": "event_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the event."
+                                },
+                                {
+                                    "id": "ticketType_id",
+                                    "key": "ticketType_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the ticketType."
+                                }
+                            ]
+                        },
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Soft-delete a ticket type. Only allowed if no paid orders reference it."
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Orders \/ Checkout",
+            "description": "\nAttendee ticket checkout. Creates a 15-minute inventory hold and initiates payment.",
+            "item": [
+                {
+                    "name": "Checkout",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/orders",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/orders"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Idempotency-Key",
+                                "value": "string required A unique key (UUID recommended) to make this request idempotent. Example: 550e8400-e29b-41d4-a716-446655440000"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"idempotency_key\":\"b\",\"items\":[{\"ticket_type_id\":\"architecto\",\"quantity\":22}]}"
+                        },
+                        "description": "Reserve tickets with a 15-minute hold and initiate payment via the payment-service.\nThe order is created with `status=pending`; it becomes `paid` when the payment webhook\nconfirms success, or `expired` if the hold expires without payment.\n\n**Idempotency:** include a unique `Idempotency-Key` header. Replaying the same key returns\nthe existing order without creating a second charge."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 201,
+                            "body": "{\"success\":true,\"message\":\"Order created, payment initiated.\",\"data\":{\"order\":{\"id\":\"01J000000000000DEMOORDER1\",\"status\":{\"value\":\"pending\",\"label\":\"Pending\"},\"total\":75000,\"currency\":\"BDT\",\"items\":[{\"ticket_type_id\":\"01J000000000000DEMOTICKET\",\"quantity\":3,\"unit_price\":25000}],\"created_at\":\"2026-06-30T10:05:00Z\"}},\"errors\":null}",
+                            "name": "Order created (pending payment)"
+                        },
+                        {
+                            "header": [],
+                            "code": 409,
+                            "body": "{\"success\":false,\"message\":\"Insufficient tickets available. Please try a smaller quantity or a different ticket type.\",\"data\":null,\"errors\":null}",
+                            "name": "Tickets unavailable"
+                        },
+                        {
+                            "header": [],
+                            "code": 422,
+                            "body": "{\"success\":false,\"message\":\"Validation failed.\",\"data\":null,\"errors\":{\"idempotency_key\":[\"The idempotency key is required.\"]}}",
+                            "name": "Missing idempotency key"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Refunds",
+            "description": "\nRequest and manage order refunds. Amount is always **policy-derived** \u2014 attendees never specify\na sum. Time-based policy: >48 h before event start \u2192 100%; 24\u201348 h \u2192 50%; <24 h \u2192 0%.",
+            "item": [
+                {
+                    "name": "Request refund (attendee)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/orders\/:order_id\/refund",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/orders\/:order_id\/refund",
+                            "variable": [
+                                {
+                                    "id": "order_id",
+                                    "key": "order_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the order."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"items\":[{\"order_item_id\":\"architecto\",\"quantity\":22}]}"
+                        },
+                        "description": "Request a refund for a paid order (or a subset of its tickets). The refund amount is\nauto-derived from the time-based cancellation policy \u2014 the attendee does not specify an amount.\nIn-policy requests are auto-approved and executed immediately. Out-of-policy requests open a\ndispute for admin mediation."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 202,
+                            "body": "{\"success\":true,\"message\":\"Refund requested and queued for processing.\",\"data\":{\"refund\":{\"id\":\"01J000000000000DEMOREFUND\",\"order_id\":\"01J000000000000DEMOORDER1\",\"amount\":75000,\"currency\":\"BDT\",\"policy_applied\":\"100\",\"status\":{\"value\":\"pending\",\"label\":\"Pending\"},\"reason\":{\"value\":\"attendee_requested\",\"label\":\"Attendee Requested\"},\"created_at\":\"2026-06-30T10:10:00Z\"}},\"errors\":null}",
+                            "name": "Refund accepted"
+                        },
+                        {
+                            "header": [],
+                            "code": 422,
+                            "body": "{\"success\":false,\"message\":\"Validation failed.\",\"data\":null,\"errors\":{\"order\":[\"This order is not eligible for a refund.\"]}}",
+                            "name": "Order not refundable"
+                        }
+                    ]
+                },
+                {
+                    "name": "Initiate refund (admin)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/admin\/orders\/:order_id\/refund",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/admin\/orders\/:order_id\/refund",
+                            "variable": [
+                                {
+                                    "id": "order_id",
+                                    "key": "order_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the order."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"reason\":\"event_cancelled\",\"items\":[{\"order_item_id\":\"architecto\",\"quantity\":22}]}"
+                        },
+                        "description": "Admin-initiated refund \u2014 e.g. when an event is cancelled. The reason can be\n`attendee_requested` or `event_cancelled`. Amount is policy-derived (cancellations are 100%).\nIdempotent: replaying the same order returns the existing open refund."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 202,
+                            "body": "{\"success\":true,\"message\":\"Refund requested and queued for processing.\",\"data\":{\"refund\":{\"id\":\"01J000000000000DEMOREFUND\",\"order_id\":\"01J000000000000DEMOORDER1\",\"amount\":75000,\"currency\":\"BDT\",\"policy_applied\":\"100\",\"status\":{\"value\":\"pending\",\"label\":\"Pending\"},\"reason\":{\"value\":\"event_cancelled\",\"label\":\"Event Cancelled\"},\"created_at\":\"2026-06-30T10:10:00Z\"}},\"errors\":null}",
+                            "name": "Refund initiated"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Vendors \/ KYC",
+            "description": "\nVendor onboarding and KYC (Know Your Customer) review. Vendors must be KYC-verified\nbefore they can publish events or receive payouts.",
+            "item": [
+                {
+                    "name": "Submit KYC (vendor)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/vendor\/kyc",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/vendor\/kyc"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"documents\":[{\"type\":\"trade_license\",\"storage_path\":\"b\"}]}"
+                        },
+                        "description": "Submit or re-submit the authenticated vendor's KYC documents for admin review.\nKYC status transitions: `pending \u2192 verified` (admin approves) or `pending \u2192 rejected`.\nOnly `pending` and `rejected` vendors may re-submit."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Verify vendor (admin)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/admin\/vendors\/:vendor_id\/verify",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/admin\/vendors\/:vendor_id\/verify",
+                            "variable": [
+                                {
+                                    "id": "vendor_id",
+                                    "key": "vendor_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the vendor."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Approve a vendor's KYC submission (`pending \u2192 verified`). Verified vendors can publish\nevents and receive payouts."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Reject vendor (admin)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/admin\/vendors\/:vendor_id\/reject",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/admin\/vendors\/:vendor_id\/reject",
+                            "variable": [
+                                {
+                                    "id": "vendor_id",
+                                    "key": "vendor_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the vendor."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"rejection_reason\":\"b\"}"
+                        },
+                        "description": "Reject a vendor's KYC submission (`pending \u2192 rejected`) with a mandatory reason.\nThe vendor may re-submit after addressing the stated issues."
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Payouts",
+            "description": "\nAdmin payout management. Payouts are calculated per-vendor after their events complete.\nNet = gross_sales \u2212 (gross \u00d7 commission_rate). A minimum threshold is enforced; below it the\npayout rolls to the next cycle. Execution is asynchronous \u2014 the terminal result arrives via\nthe payment-service webhook.\n\nGET  \/admin\/payouts               \u2014 paginated list (filterable by status\/vendor).\nPOST \/admin\/payouts\/build         \u2014 calculate pending settlements (decide-only; no money moves).\nPOST \/admin\/payouts\/{payout}\/execute \u2014 dispatch payment to the vendor.",
+            "item": [
+                {
+                    "name": "Build payout batch (admin)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/admin\/payouts\/build",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/admin\/payouts\/build"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"vendor_id\":\"b\",\"batch_id\":\"n\"}"
+                        },
+                        "description": "Calculate pending settlements for all eligible vendors (or a single vendor if `vendor_id`\nis provided). This is a **decide-only** step \u2014 it creates `Payout` records but moves no money.\nCall `\/admin\/payouts\/{payout}\/execute` to actually disburse. Idempotent per `batch_id`."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 201,
+                            "body": "{\"success\":true,\"message\":\"1 payout(s) built.\",\"data\":{\"batch_id\":\"2026-06-30\",\"count\":1,\"payouts\":[{\"id\":\"01J000000000000DEMOPAYOUT\",\"vendor_id\":\"01J000000000000DEMOVENDOR\",\"gross\":500000,\"commission\":50000,\"net\":450000,\"currency\":\"BDT\",\"status\":{\"value\":\"pending\",\"label\":\"Pending\"},\"batch_id\":\"2026-06-30\",\"created_at\":\"2026-06-30T09:00:00Z\"}]},\"errors\":null}",
+                            "name": "Batch built"
+                        }
+                    ]
+                },
+                {
+                    "name": "Execute payout",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/admin\/payouts\/:payout_id\/execute",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/admin\/payouts\/:payout_id\/execute",
+                            "variable": [
+                                {
+                                    "id": "payout_id",
+                                    "key": "payout_id",
+                                    "value": "architecto",
+                                    "description": "The ID of the payout."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Dispatch payment for a `pending` or `approved` payout. The job transitions the payout to\n`processing` and calls payment-service; the terminal result (`paid` or `failed`) arrives\nvia the signed payment-service webhook. Idempotent \u2014 re-dispatching the same payout\nreuses the deterministic idempotency key."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\":true,\"message\":\"Payout execution queued.\",\"data\":{\"payout\":{\"id\":\"01J000000000000DEMOPAYOUT\",\"vendor_id\":\"01J000000000000DEMOVENDOR\",\"gross\":500000,\"commission\":50000,\"net\":450000,\"currency\":\"BDT\",\"status\":{\"value\":\"pending\",\"label\":\"Pending\"},\"batch_id\":\"01J0BATCHID\",\"created_at\":\"2026-06-30T09:00:00Z\"}},\"errors\":null}",
+                            "name": "Queued"
+                        },
+                        {
+                            "header": [],
+                            "code": 409,
+                            "body": "{\"success\":false,\"message\":\"This payout cannot be executed in its current status.\",\"data\":null,\"errors\":null}",
+                            "name": "Not executable"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "auth": {
+        "type": "bearer",
+        "bearer": [
+            {
+                "key": "Authorization",
+                "type": "string"
+            }
+        ]
+    }
+}

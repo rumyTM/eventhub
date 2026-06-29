@@ -28,4 +28,15 @@ class LoginRequest extends FormRequest
             $this->merge(['email' => mb_strtolower(trim($this->email))]);
         }
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'email'    => ['example' => 'vendor@eventhub.test'],
+            'password' => ['example' => 'password'],
+        ];
+    }
 }

@@ -25,4 +25,16 @@ class ListPayoutsRequest extends FormRequest
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ];
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'status'    => ['example' => 'pending'],
+            'vendor_id' => ['example' => 'no-example'],
+            'per_page'  => ['example' => 20],
+        ];
+    }
 }

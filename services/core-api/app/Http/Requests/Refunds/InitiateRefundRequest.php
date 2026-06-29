@@ -40,4 +40,16 @@ class InitiateRefundRequest extends FormRequest
     {
         return RefundReason::from($this->validated('reason', RefundReason::AttendeeRequested->value));
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'reason'                 => ['example' => 'event_cancelled'],
+            'items.*.order_item_id'  => ['example' => '01JWXYZ000000000000OITEM1'],
+            'items.*.quantity'       => ['example' => 1],
+        ];
+    }
 }

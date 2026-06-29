@@ -34,4 +34,15 @@ class RequestRefundRequest extends FormRequest
             'items.*.quantity' => ['required_with:items', 'integer', 'min:1', 'max:100'],
         ];
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bodyParameters(): array
+    {
+        return [
+            'items.*.order_item_id'  => ['example' => '01JWXYZ000000000000OITEM1'],
+            'items.*.quantity'       => ['example' => 1],
+        ];
+    }
 }
