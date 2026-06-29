@@ -1,6 +1,7 @@
 import { Worker, type Job } from 'bullmq';
 import { env } from '../config/env';
 import { getRedis } from '../config/redis';
+import { makeBullConnection } from './index';
 import { logger } from '../lib/logger';
 import { computeBackoffDelay, MAX_ATTEMPTS } from '../lib/backoff';
 import { handleJobFailure } from '../lib/jobFailure';
@@ -23,8 +24,9 @@ function getDeliveryRepo(): DeliveryRepository {
 }
 
 function makeWorker(queueName: string, processor: (job: Job<JobPayload>) => Promise<void>): Worker {
+  // Pass a plain config object so BullMQ uses its own bundled ioredis — avoids dual-ioredis TS error.
   const worker = new Worker<JobPayload>(queueName, processor, {
-    connection: { createClient: () => getRedis() },
+    connection: makeBullConnection(),
     settings: { backoffStrategy: computeBackoffDelay },
   });
 

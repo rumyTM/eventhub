@@ -6,6 +6,60 @@
 
 ---
 
+## 2026-06-29 — Day 4 (Slice 4): Next.js 14 frontend — full three-role UI, typed API client, Dockerfile
+**Maps to:** PLAN.md Day 4 — frontend build (attendee + vendor + admin areas). `frontend/CLAUDE.md` §B–§E.
+
+**What changed (`frontend/`)**
+- **Scaffolded** Next.js 14 App Router project (TypeScript, Tailwind CSS, shadcn/ui primitives hand-built from Radix UI). TanStack Query v5 for server state; Sonner for toasts; Lucide for icons.
+- **`lib/api/`** — full typed API client layer:
+  - `client.ts`: `apiFetch` fetch wrapper that attaches `Authorization: Bearer` token, parses the `{success,message,data,errors}` envelope, throws `ApiError` (with `status`, `errors`, `retryAfter`) on `success:false`. Token persisted to `localStorage`; token-in-memory cache for SSR safety.
+  - `error.ts`: `ApiError` class with `isUnauthorized`, `isForbidden`, `isRateLimited` helpers.
+  - `types.ts`: TypeScript types mirroring all core-api resource shapes (User, Event, TicketType, Order, Hold, Refund, Vendor, Payout, Pagination, EnumValue).
+  - `auth.ts`, `events.ts`, `orders.ts`, `payouts.ts`, `admin.ts`: resource-level API modules.
+- **`lib/auth-context.tsx`**: `AuthProvider` + `useAuth` hook; restores session from localStorage on mount via `GET /auth/me`; exposes `login`, `register`, `logout`.
+- **`app/providers.tsx`**: `QueryClientProvider` (retry skips 401/403/404) + `AuthProvider` + Sonner `Toaster`.
+- **`app/page.tsx`**: root redirect — bounces to `/admin`, `/vendor`, or `/events` by role, or `/login` if unauthenticated.
+- **Auth area `(auth)/`**: login page, register page (with role selector), shared centered layout.
+- **Vendor area `(vendor)/`** (role-guarded):
+  - Dashboard with analytics (event count, tickets sold, gross revenue).
+  - Events list (paginated, with delete).
+  - Create event form (`/vendor/events/new`) and edit event form (`/vendor/events/[id]/edit`).
+  - Event detail page with per-event sales table and `TicketTypesSection` (add/delete ticket types via dialog, price entry in BDT converted to poisha).
+  - Payout history table with status badges and summary cards.
+- **Attendee area `(attendee)/`** (role-guarded):
+  - Event listing (card grid, filters to published/ongoing, sold-out detection).
+  - Event detail + ticket selection (quantity stepper per ticket type, order summary, checkout initiates `POST /orders` with idempotency key).
+  - Checkout page `(/checkout/[orderId])`: polls `GET /orders/{id}` every 3s, shows live countdown from `hold_expires_at`, handles `paid`/`failed`/`expired` terminal states.
+  - Order history (paginated) + order detail with refund request dialog (maps `errors` back to form, explains policy in UI).
+- **Admin area `(admin)/`** (role-guarded):
+  - Overview dashboard (pending vendors count, GMV from payouts, pending payout count, quick-action links).
+  - Vendor KYC approval queue: verify + reject (with reason dialog).
+  - Payout management: build batch button + execute per-payout.
+  - Dispute/refund queue: admin-initiated refund with reason.
+- **Shared components**: `RoleGuard`, `Nav`, `LoadingSpinner`, `EmptyState`, `ErrorDisplay` (handles 401/403/429/generic with retry button).
+- **UI primitives** (`components/ui/`): Button, Input, Label, Card, Badge, Select, Textarea, Dialog, Tabs, Toast (Sonner wrapper).
+- **`Dockerfile`**: multi-stage (node:22-alpine builder → standalone runner); `output: "standalone"` in `next.config.mjs`; build arg `NEXT_PUBLIC_API_BASE_URL` for Docker networking.
+- **`docker-compose.yml`**: updated `frontend` service to use build args for `NEXT_PUBLIC_API_BASE_URL` pointing at `core-api:8000`.
+
+**Decisions**
+- **Single `apiFetch` wrapper in `lib/api/client.ts`** — all UI code calls typed resource modules (`eventsApi`, `ordersApi`, etc.), never `fetch` directly. Enforces envelope parsing and `ApiError` uniformly; satisfies the frontend CLAUDE.md hard rule.
+- **Token in `localStorage` (not httpOnly cookie)** — Next.js 14 App Router with static/standalone output cannot easily set httpOnly cookies from the client side without a route handler. `localStorage` is pragmatic for an assessment; a production build would use a `/api/session` server route. Noted as a trade-off.
+- **TanStack Query retry skips 401/403/404** — these are deterministic failures; retrying wastes requests and delays the user seeing a redirect or error state.
+- **Hold countdown uses `secondsUntil(expires_at)` + `setInterval(1s)`** — computed from the ISO-8601 timestamp returned by the API, not from a server-pushed clock, which is correct for the 15-min hold display requirement.
+- **`npm run build` standalone output** — `output: "standalone"` enables the lean Docker runtime that copies only used dependencies into the runner stage, keeping the image small.
+
+**Verification**
+- `npm run build` — **17/17 pages compiled, 0 errors, 0 TypeScript errors** (Next.js type-checks during build).
+- `npm run lint` — **✔ No ESLint warnings or errors**.
+- No `npm run test` yet (msw-mocked integration tests not yet written — noted as next task per CLAUDE.md §D).
+
+**Next**
+- Write msw-mocked integration tests for checkout, event create, and vendor approval flows (CLAUDE.md §D).
+- Commit frontend (pending explicit user approval) with `:sparkles: Add Next.js 14 frontend — vendor/attendee/admin areas, typed API client, Dockerfile`.
+- Update `docs/technical-decision-log.md` with localStorage token ADR if promoted.
+
+---
+
 ## 2026-06-30 — Day 4/5 (slice 3 · Chunk F): end-to-end loop tests (refund + payout) + financial-reviewer fixes + ADR-31–36
 **Maps to:** Day 4–5 — payouts/refunds close-out (PLAN.md); core-api `CLAUDE.md` §F/§H/§I; ADR-09 (idempotency),
 ADR-20 (clawback), ADR-27 (e2e tests fake only the process boundary). **Chunk F — CLOSE SLICE 3: wire + proof.
