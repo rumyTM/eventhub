@@ -19,6 +19,7 @@ return new class extends Migration
             $table->unsignedBigInteger('settled_amount'); // minor units
             $table->timestamps();
 
+            $table->unique(['payout_id', 'order_id'], 'uq_payout_items_payout_order'); // C-2: DB guard, no dup items
             $table->index('payout_id', 'idx_payout_items_payout_id'); // orders a payout settled
             $table->index('order_id', 'idx_payout_items_order_id');   // has an order been settled?
             $table->foreign('payout_id')->references('id')->on('payouts')->cascadeOnDelete();

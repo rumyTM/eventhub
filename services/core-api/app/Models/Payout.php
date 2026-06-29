@@ -21,6 +21,7 @@ class Payout extends Model
         'gross',
         'commission',
         'net',
+        'payable',
         'reserved_refund',
         'currency',
         'status',
@@ -29,7 +30,9 @@ class Payout extends Model
     ];
 
     /**
-     * All money columns are integer minor units. `idempotency_key` + `batch_id` guard against double-pay.
+     * All money columns are integer minor units. `net = gross − commission`; `payable = net + adjustments`
+     * (floored at 0) — the amount actually disbursed to the vendor. `idempotency_key` + `batch_id` guard
+     * against double-pay.
      *
      * @return array<string, string>
      */
@@ -40,6 +43,7 @@ class Payout extends Model
             'gross' => 'integer',
             'commission' => 'integer',
             'net' => 'integer',
+            'payable' => 'integer',
             'reserved_refund' => 'integer',
         ];
     }

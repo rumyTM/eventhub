@@ -18,6 +18,35 @@ final class RefundRepository implements RefundRepositoryInterface
         return Refund::query()->find($id);
     }
 
+    public function findForUpdate(string $id): ?Refund
+    {
+        return Refund::query()->whereKey($id)->lockForUpdate()->first();
+    }
+
+    public function lockOpenForOrder(string $orderId): ?Refund
+    {
+        return Refund::query()
+            ->whereIn('status', [RefundStatus::Requested->value, RefundStatus::Pending->value])
+            ->whereHas('payment', fn ($q) => $q->where('order_id', $orderId))
+            ->lockForUpdate()
+            ->first();
+    }
+
+    public function markPending(Refund $refund): void
+    {
+        $refund->update(['status' => RefundStatus::Pending->value]);
+    }
+
+    public function markCompleted(Refund $refund): void
+    {
+        $refund->update(['status' => RefundStatus::Completed->value]);
+    }
+
+    public function markFailed(Refund $refund): void
+    {
+        $refund->update(['status' => RefundStatus::Failed->value]);
+    }
+
     public function findOpenForOrder(string $orderId): ?Refund
     {
         return Refund::query()
@@ -30,6 +59,14 @@ final class RefundRepository implements RefundRepositoryInterface
     {
         return (int) Refund::query()
             ->where('status', '!=', RefundStatus::Failed->value)
+            ->whereHas('payment', fn ($q) => $q->where('order_id', $orderId))
+            ->sum('amount');
+    }
+
+    public function completedRefundedTotalForOrder(string $orderId): int
+    {
+        return (int) Refund::query()
+            ->where('status', RefundStatus::Completed->value)
             ->whereHas('payment', fn ($q) => $q->where('order_id', $orderId))
             ->sum('amount');
     }

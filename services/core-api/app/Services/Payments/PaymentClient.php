@@ -5,6 +5,7 @@ namespace App\Services\Payments;
 use App\Contracts\PaymentServiceContract;
 use App\Helpers\LogHelper;
 use App\Support\Payments\ChargeResult;
+use App\Support\Payments\RefundResult;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -47,6 +48,35 @@ final class PaymentClient implements PaymentServiceContract
         return new ChargeResult(
             ref: $response->json('data.payment.ref'),
             status: (string) $response->json('data.payment.status.value', 'pending'),
+        );
+    }
+
+    public function refund(
+        string $paymentRef,
+        int $amount,
+        string $currency,
+        ?string $reason,
+        string $idempotencyKey,
+    ): RefundResult {
+        $response = Http::asJson()
+            ->withToken((string) config('services.payment.service_token'))
+            ->withHeaders([
+                'Idempotency-Key' => $idempotencyKey,
+                ...LogHelper::traceHeaders(),
+            ])
+            ->connectTimeout(5)
+            ->timeout(10)
+            ->post($this->endpoint('/api/v1/refunds'), [
+                'payment_ref' => $paymentRef, // the payment-service charge ref — never card data
+                'amount' => $amount,          // integer minor units — never float
+                'currency' => $currency,
+                'reason' => $reason,
+            ])
+            ->throw(); // 4xx/5xx → RequestException; timeout → ConnectionException (both surfaced to the job)
+
+        return new RefundResult(
+            ref: $response->json('data.refund.ref'),
+            status: (string) $response->json('data.refund.status.value', 'pending'),
         );
     }
 

@@ -436,6 +436,40 @@
   multiple separate requests are out of scope for this slice (one open refund per order at a time); the amount math
   already supports a subset selection within a single request.
 
+### ADR-30: Refund execution + webhook settlement mirror the charge path; reversal ledger with clawback fallback
+- Decision: refund execution is **asynchronous and signed exactly like the charge path**. core-api's queued
+  `ExecuteRefundJob` flips the refund `requested → pending` (row-locked) and POSTs to payment-service `/refunds` with
+  a **deterministic `Idempotency-Key` (`refund:{id}`)** + the shared-secret bearer + the trace header; it **never**
+  marks the refund completed itself. The terminal result arrives at a new receiver
+  `POST /api/v1/internal/payments/refund-webhook`, gated by the **same** `webhook.signature` middleware (bearer +
+  raw-body HMAC, verified before parsing) as the charge webhook. Settlement runs in **one transaction with the order
+  row locked**, idempotent/replay-safe first (no open refund → 200 no-op). On `completed` it writes the **signed
+  reversal ledger per owning vendor** — a negative `refund` entry (the sale reversal) **plus** a positive `commission`
+  entry (the platform earns nothing on a refund, so sale + reversal net to zero, ADR-23) — and when that vendor's
+  revenue for the order was **already paid out** (a `paid` `payout_item` exists) the negative entry is a **`clawback`**
+  instead (ADR-20/13, the rare fallback). On `failed`: mark the refund failed, **no ledger, no ticket/order change**.
+- Correlation: the webhook is matched to **the order's single OPEN refund** (`findOpenForOrder`), not by storing
+  payment-service's refund ref. This is sound because of the **one-open-refund-per-order invariant** (ADR-29) and
+  avoids a column + a POST-response/webhook ordering race; the order-row lock serializes per-order processing.
+- Per-vendor split + ticket/order state: the refund amount is split across vendors **proportionally to gross share**
+  (remainder-safe; exact for a full-order refund, since `selectedBase = order total`). Tickets are voided (`valid →
+  refunded`) and the order set `refunded` **only when cumulative refunds reach the order total**; otherwise the order
+  is `partially_refunded` and tickets are left valid.
+- Alternatives considered: (a) settle the refund synchronously in the POST response — rejected: it diverges from the
+  charge path, loses the persist-first/retry guarantee, and couples two services on one request; (b) store
+  payment-service's refund ref on core-api's refund and correlate on it — more robust in the abstract but needs a
+  migration and a race fallback, and the one-open-refund invariant already gives an unambiguous handle; (c) persist
+  per-item refund selection so partial refunds void the exact tickets and split exactly per vendor.
+- Why: mirroring the charge path means one webhook-security model, one idempotency story, and one retry/replay
+  guarantee across both money flows — the smallest surface a reviewer must trust. The reversal+commission pair keeps
+  the ledger symmetric and auditable; the clawback fallback handles the rare refund-after-payout without reversing a
+  completed payout.
+- Trade-off accepted (5-day): Chunk A did **not** persist the per-item refund selection, so a **partial** refund's
+  per-vendor split is proportional (not by the exact items) and its specific tickets are not voided — acceptable
+  because the common case is a full-order refund (exact), the money totals are always correct, and the cumulative cap
+  (ADR-29) plus the append-only ledger keep the books reconcilable. Persisting `refund_items` is the documented
+  follow-up that makes partial refunds exact end-to-end.
+
 ---
 
 ## Trade-offs made due to the 5-day constraint

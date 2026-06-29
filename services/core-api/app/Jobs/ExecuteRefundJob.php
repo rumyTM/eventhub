@@ -2,26 +2,29 @@
 
 namespace App\Jobs;
 
-use App\Enums\RefundStatus;
 use App\Helpers\LogHelper;
-use App\Repositories\Contracts\RefundRepositoryInterface;
+use App\Services\Refunds\RefundExecutionService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Http\Client\RequestException;
+use Throwable;
 
 /**
- * Executes an approved refund against the payment-service, off the request path. Dispatched ONLY for a
- * newly-created, policy-approved refund (see RefundController) — never for a duplicate/ineligible request.
+ * Executes an approved refund against the payment-service, off the request path (CLAUDE.md §F/§H).
+ * Dispatched ONLY for a newly-created, policy-approved refund (see RefundController) — never for a
+ * duplicate/ineligible request. Mirrors {@see InitiateChargeJob} for the charge path.
  *
- * IMPORTANT — Chunk A scope: this job is wired up now but **does not move money or write any reversal
- * ledger entry yet**. The actual payment-service call + ledger reversal land in Chunk C. The guard below
- * (no-op unless the refund is still `requested`) is the idempotency contract that Chunk C will build on:
- * a re-dispatch or a refund already past `requested` is a safe no-op.
+ * The work lives in {@see RefundExecutionService}: flip `requested` → `pending`, then POST to the
+ * payment-service with a deterministic per-refund Idempotency-Key. The refund is NEVER marked
+ * `completed` here — that arrives via the signed refund webhook. Retryable with backoff; idempotent by
+ * the per-refund key, so a retry never double-refunds. `ShouldBeUnique` keeps one in-flight job per refund.
  */
 class ExecuteRefundJob implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
+    /** Bounded retries; the refund stays pending until the webhook resolves it, so this never loses money. */
     public int $tries = 5;
 
     /** Hold the uniqueness lock across the gateway delay + a few retries. */
@@ -37,25 +40,48 @@ class ExecuteRefundJob implements ShouldBeUnique, ShouldQueue
         return $this->refundId;
     }
 
-    public function handle(RefundRepositoryInterface $refunds): void
+    /** Exponential backoff (seconds): 4 gaps across 5 attempts. */
+    public function backoff(): array
     {
-        $refund = $refunds->find($this->refundId);
+        return [10, 30, 60, 120];
+    }
 
-        // Refund vanished or already moved past `requested` (executing/terminal) — idempotent no-op.
-        if ($refund === null || $refund->status !== RefundStatus::Requested) {
-            return;
+    public function handle(RefundExecutionService $refunds): void
+    {
+        try {
+            $refunds->execute($this->refundId);
+        } catch (RequestException $e) {
+            // A 4xx is a permanent client-side rejection (bad request, unrefundable charge, key conflict)
+            // — retrying the identical call cannot succeed, and no webhook will arrive, so resolve the
+            // refund as failed now (no money moved, no ledger) and stop. A 5xx/timeout is transient: let
+            // the queue retry with backoff; the refund stays pending and is never double-executed.
+            if ($e->response->clientError()) {
+                LogHelper::logEntry(LogHelper::LOG_ERROR, 'Refund rejected by payment-service (non-retryable); marking failed', [
+                    'refund_id' => $this->refundId,
+                    'status' => $e->response->status(),
+                ]);
+                $refunds->markExecutionFailed($this->refundId);
+                $this->fail($e);
+
+                return;
+            }
+
+            throw $e; // 5xx/timeout — transient; let the queue retry with backoff
         }
+    }
 
-        // Chunk C will, in order: (1) flip requested→pending INSIDE a transaction BEFORE the outbound
-        // call (so a worker crash mid-call can't re-call the gateway once the uniqueness lock lapses —
-        // the pending guard makes a retry a no-op until the result lands), (2) call
-        // PaymentServiceContract::refund() with an idempotency key, (3) on the signed result write the
-        // reversal `ledger_entry` and flip the refund to completed/failed.
-        // Until then we record that execution is queued — NO money is moved here.
-        LogHelper::logEntry(LogHelper::LOG_INFO, 'Refund approved and queued; execution deferred to Chunk C', [
-            'refund_id' => $refund->id,
-            'amount' => $refund->amount,         // integer minor units — never card data
-            'policy_applied' => $refund->policy_applied,
+    /**
+     * All retries exhausted (5xx/timeout loop). The deterministic idempotency key guarantees the
+     * payment-service never durably created the refund — a retry would replay a 2xx — so it is safe
+     * to mark the refund failed here, releasing the one-open guard on the order.
+     */
+    public function failed(?Throwable $e): void
+    {
+        LogHelper::logEntry(LogHelper::LOG_ERROR, 'Refund execution exhausted retries', [
+            'refund_id' => $this->refundId,
+            'reason' => $e?->getMessage(),
         ]);
+
+        app(RefundExecutionService::class)->markExecutionFailed($this->refundId);
     }
 }

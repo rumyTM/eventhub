@@ -6,6 +6,140 @@
 
 ---
 
+## 2026-06-30 — Day 4 (slice 3 · Chunk D): payout CALCULATION + batch build (core-api, decide-only)
+**Maps to:** Day 4 — payouts (PLAN.md); core-api `CLAUDE.md` §F + §H; `docs/erd.md` (payouts, payout_items,
+ledger_entries); ADR-08 (integer minor units), ADR-09 (idempotency), ADR-12 (single-currency), ADR-13 (vendor balance =
+SUM ledger), ADR-14 (commission snapshot), ADR-20 (defer revenue until event completed). **Chunk D — DECIDE ONLY: builds
+Payout + PayoutItem rows (status=pending). No payment-service call; no money moves. Chunk E will execute and mark paid.**
+
+**What changed (`services/core-api`)**
+- **`CalculatePayout` action** (`app/Actions/Payouts/`) + **`PayoutCalculation` value object** (`app/Support/Payouts/`)
+  — pure computation, no DB; `net = gross − commission`, `payable = net + adjustments`, floored at 0 (never negative),
+  gated on minimum threshold. All integer minor units (ADR-08).
+- **`PayoutBuildService`** (`app/Services/Payouts/`) — full idempotency contract: fast-path
+  `findByIdempotencyKey("payout:{vendorId}:{batchId}")` then row-lock (`SELECT … FOR UPDATE`) inside `DB::transaction`,
+  catches `UniqueConstraintViolationException` as a replay. Calls `CalculatePayout` for the math; creates `Payout`
+  (status=`pending`) + one `PayoutItem` per eligible order. Returns `null` for no-eligible-orders or below-threshold
+  (rolls into next cycle). `buildAll(batchId)` enumerates vendor IDs and delegates.
+- **Repositories expanded:**
+  - `OrderRepositoryInterface` + `OrderRepository` — added `eligibleOrderIdsForVendorPayout(vendorId): array` (paid/
+    partially_refunded orders, completed-event, not already in a paid payout for this vendor; `withTrashed` on
+    ticket_types+events) and `eligibleVendorIdsForPayout(): array` (distinct vendor_ids for `buildAll`).
+  - `LedgerEntryRepositoryInterface` + `LedgerEntryRepository` — added `vendorPayoutAmounts(vendorId, eligibleOrderIds):
+    array` returning `{gross, commission, adjustments, per_order}`. Adjustments = completed-refund entries for eligible
+    orders + ALL clawback entries for this vendor (post-payout recoveries from past cycles).
+  - `PayoutRepositoryInterface` + `PayoutRepository` — added `findByIdempotencyKey`, `lockByIdempotencyKey`,
+    `createPayout`, `createPayoutItem`, `list` (paginated, filterable by status/vendor_id).
+- **Admin endpoints:**
+  - `GET /api/v1/admin/payouts` — paginated list, filterable by `status` + `vendor_id`; `throttle:read`.
+  - `POST /api/v1/admin/payouts/build` — trigger build run; optional `vendor_id` + `batch_id` (defaults to today's
+    ISO date); idempotent; returns 201 with payout list; `throttle:write`.
+- **`PayoutController`**, **`BuildPayoutsRequest`**, **`PayoutResource`** (enums as `{value,label}`, ISO-8601
+  timestamps, integer amounts), **`lang/en/api.php` `payouts.*`** added.
+
+**Decisions**
+- **Idempotency: fast-path + row-lock + unique-constraint** — three-layer guard mirrors the charge/refund pattern
+  (ADR-09). Fast-path avoids a transaction for replays; row lock collapses concurrent workers; unique constraint is
+  the final backstop so a duplicate INSERT is caught and returned rather than crashing.
+- **`eligibleOrderIdsForVendorPayout` does NOT exclude pending-payout orders** — the not-settled guard is `whereDoesntHave`
+  against *paid* payouts only. Pending/approved/processing payouts are intentionally re-eligible so an aborted Chunk-E
+  execution can retry via a new batch without data loss. The idempotency key prevents duplicate pending rows for the same
+  batch window.
+- **Clawback adjustments are global (not scoped to eligibleOrderIds)** — by definition clawbacks only exist for already-
+  disbursed orders (past paid cycles), so including them globally correctly reduces the current cycle's payable without
+  double-counting the new eligible orders.
+- **`eligibleVendorIdsForPayout` is a fast pre-filter** — it uses a raw JOIN (bypasses soft-delete global scopes) to
+  enumerate vendor IDs; `buildForVendor` performs the exact per-vendor eligibility check. False positives are fine here
+  since `buildForVendor` returns null for empty results.
+
+**financial-logic-reviewer findings + fixes (applied same session)**
+- **C-1 (fixed):** `eligibleOrderIdsForVendorPayout` was guarding against `paid` payouts only — a second pending batch
+  for the same vendor would double-include every order. Fixed: guard now excludes all non-`failed` statuses
+  (`whereNotIn(status, [Failed])`), so pending/approved/processing payouts all block re-inclusion.
+- **C-2 (fixed):** missing `UNIQUE(payout_id, order_id)` on `payout_items`. Added to migration as DB-level guard.
+- **H-1 (fixed):** commission-reversal ledger entries (`entry_type=Commission, subject_type=refund`) were silently
+  dropped from refund adjustments. Fixed: refund adjustment query now fetches both `Refund` and `Commission` entries
+  with `subject_type=refund`. Vendors were being shorted their returned commission on partially-refunded orders.
+- **H-2 (fixed):** `net` column was storing `payable` (post-adjustment amount), making `gross − commission ≠ net`.
+  Added separate `payable` column to migration + model + service; `net` now correctly stores `gross − commission`.
+  `PayoutResource` exposes both.
+- **H-3 (fixed):** clawback entries were summed globally, risking double-application across cycles. Fixed: scoped to
+  entries `created_at > last paid payout updated_at` for this vendor (new clawbacks only).
+- **H-4 (fixed):** doc comment on `CalculatePayout` incorrectly stated `net` is always ≥ 0. Fixed.
+- **M-1 (fixed):** `batch_id` was `nullable()` in migration but is always required. Changed to non-nullable.
+- **M-4 (fixed):** `index` endpoint read query params directly without validation. Added `ListPayoutsRequest` FormRequest
+  validating `status` (enum), `vendor_id` (max 26), `per_page` (1–100).
+- **M-3 (new test):** `test_vendor_with_mixed_event_statuses_only_settles_completed_event_orders`.
+- **H-1 regression test:** `test_commission_reversal_included_in_payout_adjustments` — proves the fix.
+- Accepted without change: M-2 (soft-delete on ticket_types — raw JOIN is intentional; existing comment),
+  M-5 (per-order settled_amount doesn't account for per-order refunds — documented limitation for follow-up),
+  N-2/N-3 (superseded by H-2 fix), N-1 (superseded by C-1 fix test rewrite).
+- Also fixed two existing `RefundWebhookTest` fixtures that created `Payout` rows without the new `payable` column.
+
+**Verification**
+- `composer format` (Pint) clean. `php artisan test` — **186 passed (666 assertions)**, all suites green.
+- 25 new tests (9 unit + 16 feature) across `CalculatePayoutTest` + `PayoutBuildServiceTest`. All reviewer-required
+  regression tests added and passing.
+
+**Next (slice 3 / Day 4)**
+- Run `financial-logic-reviewer`, address findings, commit Chunk D.
+- Chunk E: payout EXECUTION — `ProcessPayoutBatch` job, `PaymentClient::executePayout`, payout webhook receiver, mark
+  `paid`, write `payout` ledger entries, notify vendor.
+
+## 2026-06-30 — Day 4 (slice 3 · Chunk C): refund EXECUTION client + webhook settlement (core-api)
+**Maps to:** Day 4 — refunds (PLAN.md); core-api `CLAUDE.md` §F + §H; `docs/erd.md` (refunds, ledger_entries,
+payouts); ADR-09/10/13/14, ADR-20 (clawback), ADR-23. **Chunk C of slice 3 — closes the refund loop: core-api drives
+payment-service refund execution and settles the signed result. Builds on Chunk A (request/policy) + Chunk B
+(payment-service execution).**
+
+**What changed (`services/core-api`) — mirrors the charge client + webhook EXACTLY**
+- **`PaymentServiceContract::refund` + `PaymentClient::refund` + `RefundResult`** — POSTs to payment-service
+  `/api/v1/refunds` with `Authorization: Bearer ${PAYMENT_SERVICE_TOKEN}`, a deterministic `Idempotency-Key`
+  (`refund:{id}`), and `LogHelper::traceHeaders()`; `->throw()` so non-2xx surfaces to the job.
+- **`ExecuteRefundJob` (rewritten from the Chunk-A stub) + `RefundExecutionService`** — flips the refund
+  `requested → pending` (row-locked) BEFORE the call, then POSTs; **never marks it completed locally**. 5xx/timeout →
+  bubbles for a backed-off retry (refund stays pending, key reused → no double refund); **4xx → fast-fail**, resolve
+  the refund `failed` locally (no webhook will come), no ledger. No charge-of-record (`external_ref` missing) → fail
+  locally rather than hang pending.
+- **`POST /api/v1/internal/payments/refund-webhook`** (`RefundWebhookController` + `RefundWebhookRequest`) gated by
+  the **same** `webhook.signature` middleware as the charge webhook (bearer + raw-body HMAC, verified before parsing;
+  401 on either failure). **`ProcessRefundWebhookService`** runs ONE transaction with the order row locked, replay-safe
+  first (no open refund → 200 no-op). On `completed`: mark the refund completed; write the **signed reversal ledger
+  per owning vendor** — `−refund` (sale reversal) **+** `+commission` (platform returns its cut; sale+reversal net to
+  zero, ADR-23) — or a **`clawback`** in place of `−refund` when the vendor was **already paid out** for the order (a
+  `paid` payout_item, ADR-20/13). Void `valid → refunded` tickets + mark the order `refunded` when cumulative refunds
+  reach the total, else `partially_refunded`. Enqueue `SendRefundConfirmationJob` (publish-only) after commit. On
+  `failed`: mark the refund failed, no ledger, no ticket/order change.
+- **Repos:** `RefundRepository` (+`findForUpdate`, `lockOpenForOrder`, `markPending|markCompleted|markFailed`),
+  `OrderRepository` (+`markRefunded|markPartiallyRefunded`), `TicketRepository` (+`voidValidForOrder`, status-guarded),
+  new **`PayoutRepository`** (`orderSettledPaidForVendor` for the clawback decision). New
+  `RefundWebhookMismatchException` (422). Lang `api.refunds.webhook_*` added.
+- **Cross-service config:** core-api reuses `PAYMENT_SERVICE_URL`/`PAYMENT_SERVICE_TOKEN` (outbound refund) and
+  `CORE_API_BEARER_TOKEN`/`CORE_API_WEBHOOK_SECRET` (inbound refund webhook — same keys as the charge webhook).
+  Fixed payment-service `.env.example` `CORE_API_REFUND_WEBHOOK_URL` to the agreed `…/internal/payments/refund-webhook`
+  path. Matching `[PLACEHOLDER]`s confirmed in both services.
+
+**Decision promoted → `docs/technical-decision-log.md` ADR-30** (async refund mirroring the charge path; reversal+
+commission ledger with clawback fallback; correlate by the order's single open refund; proportional per-vendor split;
+full-refund ticket voiding). Documented limitation: Chunk A didn't persist per-item refund selection, so a **partial**
+refund's per-vendor split is proportional and its specific tickets aren't voided — money totals stay correct; exact
+per-item handling is the `refund_items` follow-up.
+
+**Verification**
+- `composer format` (Pint) clean. `php artisan test` — **157 passed (558 assertions)**, existing suites green.
+- New: `ExecuteRefundJobTest` (6 — correct auth/key/body + flip-to-pending; 5xx retryable; timeout; 4xx→failed;
+  re-dispatch reuses key, no double refund; terminal no-op) and `RefundWebhookTest` (9 — completed→reversal ledger +
+  tickets voided + order refunded + confirmation; 401 bad/missing signature mutates nothing; replay no-op; failed→no
+  ledger; amount mismatch 422; partial→partially_refunded + tickets valid; **clawback** when already paid out; unknown
+  order no-op). `Http::fake`/`Queue::fake`, no real Redis.
+- `financial-logic-reviewer` run on the new refund client + settlement path (findings triaged in the follow-up).
+
+**Next (slice 3 / Day 4)**
+- Out-of-policy `<24h` contest → `dispute` creation + admin mediation (ADR-11); event-cancellation **mass** 100%
+  refund fan-out (ADR-23). Then **payouts**: `CalculatePayout`, threshold, `ProcessPayoutBatch`, payout execution +
+  webhook (reusing this refund/charge client+webhook pattern).
+- `refund_items` persistence so partial refunds void exact tickets + split per vendor exactly.
+
 ## 2026-06-30 — Day 4 (slice 3 · Chunk B): refund EXECUTION (payment-service)
 **Maps to:** Day 4 — refunds (PLAN.md); payment-service `CLAUDE.md` §A.4/§B/§D/§E/§G; `docs/system-architecture.md`
 §3.5; root comms/auth matrix; ADR-09 (idempotency), ADR-10 (shared-secret bearer + HMAC webhook), ADR-13 (append-only

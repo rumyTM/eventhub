@@ -71,12 +71,20 @@ return [
 
     'refunds' => [
         'requested' => 'Refund requested. It will be processed shortly.',
+        'webhook_processed' => 'Refund result processed.',
+        'webhook_amount_mismatch' => 'The refund webhook amount or currency does not match the open refund.',
         'not_allowed' => 'This order cannot be refunded.',
         'no_payment' => 'No completed payment was found for this order.',
         'not_eligible_window' => 'This request is outside the refund window, so no automatic refund applies.',
         'already_refunded' => 'This order has already been fully refunded.',
         'invalid_item' => 'A selected ticket does not belong to this order.',
         'invalid_quantity' => 'The selected quantity exceeds the tickets on this order.',
+    ],
+
+    'payouts' => [
+        'listed' => 'Payouts retrieved.',
+        'built' => ':count payout(s) built for this batch.',
+        'vendor_not_found' => 'The specified vendor does not exist.',
     ],
 
     'ticket_types' => [

@@ -3,14 +3,15 @@
 namespace App\Contracts;
 
 use App\Support\Payments\ChargeResult;
+use App\Support\Payments\RefundResult;
 
 /**
  * core-api's view of the payment-service (CLAUDE.md §H). The concrete impl uses the Laravel HTTP
- * client and carries the shared-secret bearer + a per-attempt `Idempotency-Key` + the trace header
- * on every call; tests bind a fake. core-api NEVER sees card data — it passes order references and
- * an amount in integer minor units, and the gateway holds the instrument.
+ * client and carries the shared-secret bearer + a per-operation `Idempotency-Key` + the trace header
+ * on every call; tests bind a fake. core-api NEVER sees card data — it passes order/charge references
+ * and an amount in integer minor units, and the gateway holds the instrument.
  *
- * Only `createCharge` exists for now (Chunk C); `refund` and `executePayout` join in their slices.
+ * `executePayout` joins in the payout slice.
  */
 interface PaymentServiceContract
 {
@@ -26,4 +27,19 @@ interface PaymentServiceContract
         string $currency,
         string $idempotencyKey,
     ): ChargeResult;
+
+    /**
+     * Execute a refund against an original charge. `$paymentRef` is the payment-service's charge
+     * reference (core-api's `payments.external_ref`). Returns immediately with a `pending` result —
+     * the terminal completed/failed arrives later via the signed refund webhook. The `Idempotency-Key`
+     * is deterministic per refund so a retried call de-dupes at the payment-service (ADR-09). Throws on
+     * a transport/5xx failure so the caller (a queued job) can retry; the refund is never completed here.
+     */
+    public function refund(
+        string $paymentRef,
+        int $amount,
+        string $currency,
+        ?string $reason,
+        string $idempotencyKey,
+    ): RefundResult;
 }
