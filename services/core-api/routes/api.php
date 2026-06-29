@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\PaymentWebhookController;
 use App\Http\Controllers\Api\V1\PayoutController;
+use App\Http\Controllers\Api\V1\PayoutWebhookController;
 use App\Http\Controllers\Api\V1\RefundController;
 use App\Http\Controllers\Api\V1\RefundWebhookController;
 use App\Http\Controllers\Api\V1\TicketTypeController;
@@ -35,6 +36,11 @@ Route::post('internal/payments/webhook', [PaymentWebhookController::class, 'hand
 Route::post('internal/payments/refund-webhook', [RefundWebhookController::class, 'handle'])
     ->middleware('webhook.signature')
     ->name('internal.payments.refund-webhook');
+
+// payment-service → core-api signed PAYOUT result callback (same bearer + raw-body HMAC guard).
+Route::post('internal/payments/payout-webhook', [PayoutWebhookController::class, 'handle'])
+    ->middleware('webhook.signature')
+    ->name('internal.payments.payout-webhook');
 
 // --- Auth (public; rate-limited by the named `auth` limiter) ---
 Route::prefix('auth')->name('auth.')->group(function () {
@@ -109,10 +115,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('orders/{order}/refund', [RefundController::class, 'initiate'])
             ->middleware('throttle:refund')->name('orders.refund');
 
-        // Payout management (Chunk D — build/preview; Chunk E will add the execute endpoint).
+        // Payout management.
         Route::get('payouts', [PayoutController::class, 'index'])
             ->middleware('throttle:read')->name('payouts.index');
         Route::post('payouts/build', [PayoutController::class, 'build'])
             ->middleware('throttle:write')->name('payouts.build');
+        Route::post('payouts/{payout}/execute', [PayoutController::class, 'execute'])
+            ->middleware('throttle:write')->name('payouts.execute');
     });
 });

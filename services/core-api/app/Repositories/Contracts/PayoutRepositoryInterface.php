@@ -49,4 +49,22 @@ interface PayoutRepositoryInterface
      * @return LengthAwarePaginator<Payout>
      */
     public function list(?string $status, ?string $vendorId, int $perPage = 20): LengthAwarePaginator;
+
+    /** Find a payout by ID without a lock (returns null if not found). */
+    public function find(string $id): ?Payout;
+
+    /** Row-lock (SELECT … FOR UPDATE) a payout by ID inside an active transaction. */
+    public function findForUpdate(string $id): ?Payout;
+
+    /** Flip payout to `processing` (execution started; no webhook yet). */
+    public function markProcessing(Payout $payout): Payout;
+
+    /** Flip payout to `paid` and record the gateway ref. Written only on webhook success. */
+    public function markPaid(Payout $payout): Payout;
+
+    /** Flip payout to `failed`. No ledger entry is written — failure moves no money. */
+    public function markFailed(Payout $payout): Payout;
+
+    /** Mark all PayoutItems for a payout as settled. Called on webhook success. */
+    public function markItemsSettled(string $payoutId): void;
 }

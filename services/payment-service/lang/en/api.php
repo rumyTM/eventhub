@@ -16,6 +16,11 @@ return [
         'currency_mismatch' => 'The refund currency must match the original charge currency.',
     ],
 
+    'payouts' => [
+        'created' => 'Payout created and is being processed.',
+        'idempotency_key_required' => 'An Idempotency-Key header is required for this request.',
+    ],
+
     'errors' => [
         'too_many_requests' => 'Too many requests. Please retry later.',
     ],

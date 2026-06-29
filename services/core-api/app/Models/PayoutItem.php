@@ -18,6 +18,7 @@ class PayoutItem extends Model
         'payout_id',
         'order_id',
         'settled_amount',
+        'settled_at',
     ];
 
     /**
@@ -29,6 +30,7 @@ class PayoutItem extends Model
     {
         return [
             'settled_amount' => 'integer',
+            'settled_at' => 'datetime',
         ];
     }
 

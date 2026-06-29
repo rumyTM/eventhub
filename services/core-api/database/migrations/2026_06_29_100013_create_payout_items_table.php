@@ -17,13 +17,15 @@ return new class extends Migration
             $table->foreignUlid('payout_id');
             $table->foreignUlid('order_id');
             $table->unsignedBigInteger('settled_amount'); // minor units
+            $table->timestamp('settled_at')->nullable();  // C-1: set on webhook success; null = not yet settled
             $table->timestamps();
 
             $table->unique(['payout_id', 'order_id'], 'uq_payout_items_payout_order'); // C-2: DB guard, no dup items
             $table->index('payout_id', 'idx_payout_items_payout_id'); // orders a payout settled
             $table->index('order_id', 'idx_payout_items_order_id');   // has an order been settled?
             $table->foreign('payout_id')->references('id')->on('payouts')->cascadeOnDelete();
-            $table->foreign('order_id')->references('id')->on('orders')->cascadeOnDelete();
+            // restrictOnDelete: a settled order must never be hard-deleted (would silently destroy the audit trail)
+            $table->foreign('order_id')->references('id')->on('orders')->restrictOnDelete();
         });
     }
 

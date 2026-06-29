@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\PaymentController;
+use App\Http\Controllers\Api\V1\PayoutController;
 use App\Http\Controllers\Api\V1\RefundController;
 use App\Support\ApiResponse;
 use Illuminate\Support\Facades\Route;
@@ -24,4 +25,8 @@ Route::middleware(['service.token', 'throttle:payments'])->group(function () {
 
 Route::middleware(['service.token', 'throttle:refunds'])->group(function () {
     Route::post('refunds', [RefundController::class, 'store'])->name('refunds.store');
+});
+
+Route::middleware(['service.token', 'throttle:payouts'])->group(function () {
+    Route::post('payouts', [PayoutController::class, 'store'])->name('payouts.store');
 });

@@ -3,6 +3,7 @@
 namespace App\Contracts;
 
 use App\Support\Payments\ChargeResult;
+use App\Support\Payments\PayoutResult;
 use App\Support\Payments\RefundResult;
 
 /**
@@ -42,4 +43,20 @@ interface PaymentServiceContract
         ?string $reason,
         string $idempotencyKey,
     ): RefundResult;
+
+    /**
+     * Execute a payout to a vendor via the payment-service. `$payoutId` is the core-api Payout ULID
+     * (used as `payout_ref` in payment-service for correlation). Returns immediately with a `pending`
+     * result — the terminal completed/failed arrives via the signed payout webhook. The `Idempotency-Key`
+     * is deterministic per payout (`payout-exec:{payoutId}`) so a retried call de-dupes at the
+     * payment-service (ADR-09) and never double-pays. Throws on a transport/5xx failure so the caller
+     * (a queued job) can retry; the payout is never marked paid here.
+     */
+    public function executePayout(
+        string $payoutId,
+        string $vendorId,
+        int $amount,
+        string $currency,
+        string $idempotencyKey,
+    ): PayoutResult;
 }

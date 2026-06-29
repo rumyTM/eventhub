@@ -85,6 +85,10 @@ return [
         'listed' => 'Payouts retrieved.',
         'built' => ':count payout(s) built for this batch.',
         'vendor_not_found' => 'The specified vendor does not exist.',
+        'execution_queued' => 'Payout execution queued. The result will arrive via webhook.',
+        'not_executable' => 'Payout must be pending or approved to execute.',
+        'webhook_processed' => 'Payout result processed.',
+        'webhook_amount_mismatch' => 'The payout webhook amount does not match the recorded payable amount.',
     ],
 
     'ticket_types' => [

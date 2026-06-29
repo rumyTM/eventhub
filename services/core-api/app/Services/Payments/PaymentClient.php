@@ -5,6 +5,7 @@ namespace App\Services\Payments;
 use App\Contracts\PaymentServiceContract;
 use App\Helpers\LogHelper;
 use App\Support\Payments\ChargeResult;
+use App\Support\Payments\PayoutResult;
 use App\Support\Payments\RefundResult;
 use Illuminate\Support\Facades\Http;
 
@@ -77,6 +78,35 @@ final class PaymentClient implements PaymentServiceContract
         return new RefundResult(
             ref: $response->json('data.refund.ref'),
             status: (string) $response->json('data.refund.status.value', 'pending'),
+        );
+    }
+
+    public function executePayout(
+        string $payoutId,
+        string $vendorId,
+        int $amount,
+        string $currency,
+        string $idempotencyKey,
+    ): PayoutResult {
+        $response = Http::asJson()
+            ->withToken((string) config('services.payment.service_token'))
+            ->withHeaders([
+                'Idempotency-Key' => $idempotencyKey,
+                ...LogHelper::traceHeaders(),
+            ])
+            ->connectTimeout(5)
+            ->timeout(10)
+            ->post($this->endpoint('/api/v1/payouts'), [
+                'payout_ref' => $payoutId,   // core-api Payout ULID — correlation key, never card data
+                'vendor_id' => $vendorId,
+                'amount' => $amount,          // integer minor units — never float, never card data
+                'currency' => $currency,
+            ])
+            ->throw(); // 4xx/5xx → RequestException; timeout → ConnectionException (both surfaced to the job)
+
+        return new PayoutResult(
+            ref: $response->json('data.payout.ref'),
+            status: (string) $response->json('data.payout.status.value', 'pending'),
         );
     }
 

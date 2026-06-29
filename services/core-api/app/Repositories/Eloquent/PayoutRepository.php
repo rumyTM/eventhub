@@ -7,6 +7,7 @@ use App\Models\Payout;
 use App\Models\PayoutItem;
 use App\Repositories\Contracts\PayoutRepositoryInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 
 final class PayoutRepository implements PayoutRepositoryInterface
 {
@@ -47,5 +48,45 @@ final class PayoutRepository implements PayoutRepositoryInterface
             ->when($vendorId !== null, fn ($q) => $q->where('vendor_id', $vendorId))
             ->latest()
             ->paginate($perPage);
+    }
+
+    public function find(string $id): ?Payout
+    {
+        return Payout::query()->find($id);
+    }
+
+    public function findForUpdate(string $id): ?Payout
+    {
+        return Payout::query()->lockForUpdate()->find($id);
+    }
+
+    public function markProcessing(Payout $payout): Payout
+    {
+        $payout->forceFill(['status' => PayoutStatus::Processing->value])->save();
+
+        return $payout;
+    }
+
+    public function markPaid(Payout $payout): Payout
+    {
+        $payout->forceFill(['status' => PayoutStatus::Paid->value])->save();
+
+        return $payout;
+    }
+
+    public function markFailed(Payout $payout): Payout
+    {
+        $payout->forceFill(['status' => PayoutStatus::Failed->value])->save();
+
+        return $payout;
+    }
+
+    public function markItemsSettled(string $payoutId): void
+    {
+        // Set settled_at on each item so per-item settlement is queryable independently of the payout status.
+        PayoutItem::query()
+            ->where('payout_id', $payoutId)
+            ->whereNull('settled_at')
+            ->update(['settled_at' => Carbon::now()]);
     }
 }

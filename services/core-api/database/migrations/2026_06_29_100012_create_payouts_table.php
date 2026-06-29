@@ -31,7 +31,8 @@ return new class extends Migration
 
             $table->index(['vendor_id', 'status'], 'idx_payouts_vendor_status'); // payout history / pending
             $table->index('batch_id', 'idx_payouts_batch_id');                   // reconcile a batch run
-            $table->foreign('vendor_id')->references('id')->on('vendors')->cascadeOnDelete();
+            // restrictOnDelete: vendor hard-delete must never silently destroy the financial audit trail (C-2)
+            $table->foreign('vendor_id')->references('id')->on('vendors')->restrictOnDelete();
         });
     }
 

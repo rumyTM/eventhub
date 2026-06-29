@@ -28,7 +28,8 @@ class Transaction extends Model
 
     /** @var list<string> */
     protected $fillable = [
-        'payment_id',
+        'payment_id',  // null for payout-type rows (no associated charge)
+        'payout_id',   // set for payout-type rows only
         'type',
         'amount',
         'currency',

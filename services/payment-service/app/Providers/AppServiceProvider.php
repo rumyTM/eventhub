@@ -40,5 +40,9 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('refunds', fn (Request $request) => Limit::perMinute(120)
             ->by($request->ip())
             ->response($tooMany));
+
+        RateLimiter::for('payouts', fn (Request $request) => Limit::perMinute(60)
+            ->by($request->ip())
+            ->response($tooMany));
     }
 }

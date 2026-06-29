@@ -6,6 +6,100 @@
 
 ---
 
+## 2026-06-30 — Day 4 (slice 3 · Chunk E): payout EXECUTION loop — payment-service endpoint + core-api webhook + tests
+**Maps to:** Day 4 — payouts (PLAN.md); payment-service `CLAUDE.md` §A/§C/§D/§G; core-api `CLAUDE.md` §F/§H;
+ADR-09 (idempotency), ADR-10 (inter-service auth: shared-secret bearer + HMAC-SHA256 body signature), ADR-13 (vendor
+balance = SUM ledger; payout entry is NEGATIVE). **Chunk E — EXECUTE: money moves; payout lifecycle driven to `paid`
+or `failed` via signed webhook; ledger written only on success.**
+
+**What changed (`services/payment-service`)**
+- **`PayoutStatus` enum** (`app/Enums/`) — `Pending/Completed/Failed`; `isTerminal()` predicate.
+- **`payouts` migration** — `ulid id`, `payout_ref` (echo of core-api Payout ID), `vendor_id`, `amount`, `currency`
+  (BDT default), `status`, `gateway_ref` (nullable), `idempotency_key` (unique), index on `payout_ref`.
+- **`alter_transactions_add_payout_id_nullable_payment` migration** — makes `payment_id` nullable (payout-type rows
+  have no associated charge); adds `payout_id` FK; MySQL FK drop/re-add + SQLite `->change()`.
+- **`Payout` model** — `HasUlids`, fillable, `status` cast to `PayoutStatus`, `amount` cast to integer.
+- **`PayoutRepository`** (`Contracts/` + `Eloquent/`) — `create`, `findOrFail`, `findForUpdate` (row lock),
+  `markResolved`.
+- **`PayoutService`** — `createPayout(key, payload)`: idempotency fast-path → row-lock → unique-constraint catch;
+  `persist()` stores payout + idempotency record; `resolve(payoutId)`: optimistic read → gateway.default().payout()
+  OUTSIDE transaction → row-lock re-check → persist status + ONE ledger row (negative for success, 0 for failure).
+- **`DeliverPayoutResultJob`** — `ShouldBeUnique`, 5 tries, backoff [10,30,60,120]; resolves payout FIRST then POSTs
+  signed webhook to `CORE_API_PAYOUT_WEBHOOK_URL` with bearer + `X-Signature: hmac_sha256(body, secret)`.
+- **`CreatePayoutRequest`** — header `Idempotency-Key` folded into validated data; 422 on missing key.
+- **`PayoutResource`** — `{value,label}` status, integer amounts, no card data.
+- **`PayoutController`** — `store()`: 201 + queued resolution.
+- **Route** `POST /api/v1/payouts` behind `EnsureServiceToken + throttle:payouts`.
+- **`AppServiceProvider`** — `payouts` rate limiter (60/min).
+- **`config/services.php`** — `core_api.payout_callback_url`.
+- **`.env.example`** — `CORE_API_PAYOUT_WEBHOOK_URL`.
+- **`Transaction.$fillable`** — added `payout_id`.
+- **lang** `payouts.created`, `payouts.idempotency_key_required`.
+- **`PayoutFactory`** (payment-service) with `completed()`/`failed()` states.
+- **Tests** `PayoutEndpointTest` (8 cases) + `PayoutResolutionTest` (4 cases).
+
+**What changed (`services/core-api`)**
+- **`PayoutResult`** value object (`app/Support/Payments/`).
+- **`PaymentServiceContract::executePayout`** — new contract method.
+- **`PaymentClient::executePayout`** — POSTs to `/api/v1/payouts` with bearer + `Idempotency-Key` +
+  `LogHelper::traceHeaders()`; uses `services.payment.base_url`.
+- **`PayoutExecutionService`** — `execute(payoutId)`: guards on terminal/vanished, flips `pending → processing` in
+  row-locked transaction, calls `paymentService->executePayout`; 5xx re-throws for retry, 4xx calls
+  `markExecutionFailed`. `markExecutionFailed(payoutId)`: row-locked, marks `failed` if not already terminal.
+- **`ExecutePayoutJob`** — `ShouldBeUnique`, 5 tries, backoff [10,30,60,120]; 4xx → `markExecutionFailed + fail()`;
+  5xx → rethrow; `failed()` callback also calls `markExecutionFailed`.
+- **`ProcessPayoutWebhookService`** — single locked transaction; guard order: unknown → no-op, replay → no-op, amount
+  mismatch → 422 (`PayoutWebhookMismatchException`). On `completed`: mark `paid`, mark items settled, write ONE
+  NEGATIVE `payout` ledger entry. On `failed`: mark `failed`, no ledger. Post-commit: dispatch
+  `SendPayoutNotificationJob` for both outcomes.
+- **`PayoutWebhookController`** + **`PayoutWebhookRequest`** — validates `status.value` in `['completed','failed']`
+  (payment-service vocabulary, NOT core-api enum values).
+- **`PayoutWebhookMismatchException`** — extends `HttpException` with 422.
+- **`SendPayoutNotificationJob`** — stub; logs payout_id + status (mirrors `SendRefundConfirmationJob`).
+- **Admin `execute` endpoint** — `POST /api/v1/admin/payouts/{payout}/execute`; guards on `pending|approved`; returns
+  200 + `ExecutePayoutJob` queued.
+- **Webhook route** `POST /api/v1/internal/payments/payout-webhook` behind `webhook.signature` middleware.
+- **`PayoutRepositoryInterface`** + **`PayoutRepository`** expanded: `find`, `findForUpdate`, `markProcessing`,
+  `markPaid`, `markFailed`, `markItemsSettled`.
+- **`PayoutFactory`** (core-api) with `paid()`/`failed()`/`processing()` states; **`PayoutItemFactory`**.
+- **lang** `payouts.execution_queued`, `payouts.not_executable`, `payouts.webhook_processed`,
+  `payouts.webhook_amount_mismatch`.
+- **Tests** `ExecutePayoutJobTest` (7 cases) + `PayoutWebhookTest` (7 cases).
+
+**Decisions**
+- **Payment-service `payout_ref` = core-api Payout ID** — the webhook echoes it back unchanged so core-api can
+  `findForUpdate($payload['payout_ref'])` by primary key; no secondary lookup table needed.
+- **Status vocabulary mismatch is explicit** — payment-service sends `completed/failed`; core-api maps `completed →
+  paid`. The boundary is `PayoutWebhookRequest` validation (uses string literals, not core-api enum values) +
+  `ProcessPayoutWebhookService` (`=== 'failed'` check). This is intentional; mixing vocab in the enum would couple
+  the two services.
+- **`SendPayoutNotificationJob` dispatched on both success and failure** — the vendor needs to know either outcome;
+  failure cases dispatch with `PayoutStatus::Failed->value` so the notification stub can differentiate.
+- **`transactions.payment_id` nullable via new migration** — payout-type ledger rows have no associated charge; making
+  it nullable in a separate migration preserves existing data and FK integrity.
+- **`markExecutionFailed` called from both `handle()` (4xx branch) and `failed()` (exhausted retries)** — the
+  row-lock + terminal guard inside the method makes double-calls safe (idempotent).
+
+**Bugs fixed during test run**
+- `PayoutService::persist()` was not passing `idempotency_key` to `Payout::create()` → `NOT NULL` constraint failure
+  (fixed: added field to create array).
+- `ExecutePayoutJobTest` overrode `services.payment.url` but `PaymentClient::endpoint()` reads
+  `services.payment.base_url` → real HTTP attempted despite `Http::fake()` (fixed: corrected config key).
+- `PayoutWebhookTest` failure-case assertion was `assertNotPushed(SendPayoutNotificationJob)` but the service
+  correctly dispatches on failure too (fixed: assertion updated to `assertPushed(..., 1)`).
+
+**Verification**
+- `composer format` (Pint) clean — auto-fixed import ordering in 3 files + PayoutController brace style.
+- payment-service: **61 passed (303 assertions)**, all suites green.
+- core-api: **200 passed (708 assertions)**, all suites green, zero regressions.
+
+**Next**
+- Run `financial-logic-reviewer` on Chunk E money paths before committing.
+- Commit Chunk D + E together (pending user approval).
+- Day 5: notification-service wiring, frontend vendor dashboard, admin panel.
+
+---
+
 ## 2026-06-30 — Day 4 (slice 3 · Chunk D): payout CALCULATION + batch build (core-api, decide-only)
 **Maps to:** Day 4 — payouts (PLAN.md); core-api `CLAUDE.md` §F + §H; `docs/erd.md` (payouts, payout_items,
 ledger_entries); ADR-08 (integer minor units), ADR-09 (idempotency), ADR-12 (single-currency), ADR-13 (vendor balance =
