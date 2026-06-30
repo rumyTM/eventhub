@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { formatMoney, formatDate } from "@/lib/utils";
+import { formatMoney, formatDate, formatEventNames } from "@/lib/utils";
 import { toast } from "sonner";
 import type { DisputeItem } from "@/lib/api";
 
@@ -82,8 +82,8 @@ export default function AdminDisputesPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted">
               <tr>
-                <th className="px-4 py-2 text-left">Dispute ID</th>
-                <th className="px-4 py-2 text-left">Order</th>
+                <th className="px-4 py-2 text-left">Attendee</th>
+                <th className="px-4 py-2 text-left">Event</th>
                 <th className="px-4 py-2 text-right">Order Total</th>
                 <th className="px-4 py-2 text-left">Reason</th>
                 <th className="px-4 py-2 text-left">Opened</th>
@@ -93,8 +93,11 @@ export default function AdminDisputesPage() {
             <tbody>
               {disputes.map((d) => (
                 <tr key={d.id} className="border-t hover:bg-muted/30">
-                  <td className="px-4 py-2 font-mono text-xs">{d.id.slice(-8)}</td>
-                  <td className="px-4 py-2 font-mono text-xs">{d.order_id.slice(-8)}</td>
+                  <td className="px-4 py-2">
+                    <div>{d.order?.attendee_name ?? "—"}</div>
+                    <div className="font-mono text-xs text-muted-foreground">#{d.order_id.slice(-8)}</div>
+                  </td>
+                  <td className="px-4 py-2">{formatEventNames(d.order?.events)}</td>
                   <td className="px-4 py-2 text-right">
                     {d.order ? formatMoney(d.order.total, d.order.currency) : "—"}
                   </td>
@@ -133,8 +136,8 @@ export default function AdminDisputesPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {action === "resolve" ? "Approve Refund" : "Reject Dispute"} — Order{" "}
-              {selected?.order_id.slice(-8)}
+              {action === "resolve" ? "Approve Refund" : "Reject Dispute"} —{" "}
+              {selected?.order?.attendee_name ?? `Order #${selected?.order_id.slice(-8)}`}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">

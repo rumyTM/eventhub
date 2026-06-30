@@ -115,6 +115,21 @@ class EventTest extends TestCase
             ->assertJsonValidationErrors(['timezone']);
     }
 
+    /**
+     * A datetime with no UTC offset is ambiguous — Carbon would silently interpret it as UTC,
+     * misplacing an event's real wall-clock time in its declared timezone. Reject it (ADR-37 follow-up
+     * from the frontend timezone audit) rather than guessing.
+     */
+    public function test_offset_less_starts_at_is_rejected(): void
+    {
+        [$user] = $this->vendorUser();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/v1/events', $this->validPayload(['starts_at' => '2026-09-20T18:00:00']))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['starts_at']);
+    }
+
     // --- show ---
 
     public function test_show_published_event_is_public(): void

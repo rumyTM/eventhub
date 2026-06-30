@@ -8,9 +8,9 @@ import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate } from "@/lib/utils";
+import { EventDateTime } from "@/components/event-date-time";
 import Link from "next/link";
-import { CalendarDays, MapPin } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 
 export default function EventListingPage() {
   const [page, setPage] = useState(1);
@@ -52,16 +52,15 @@ export default function EventListingPage() {
                       {evt.status.label}
                     </Badge>
                   </div>
+                  {evt.vendor && (
+                    <p className="text-xs text-muted-foreground">By {evt.vendor.business_name}</p>
+                  )}
                   <p className="text-sm text-muted-foreground line-clamp-2">{evt.description}</p>
                 </CardHeader>
                 <CardContent className="flex-1 space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CalendarDays className="h-4 w-4" />
-                    <span>{formatDate(evt.starts_at)}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <MapPin className="h-4 w-4" />
-                    <span>{evt.timezone}</span>
+                  <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <CalendarDays className="h-4 w-4 mt-0.5 shrink-0" />
+                    <EventDateTime iso={evt.starts_at} timezone={evt.timezone} />
                   </div>
                   {minPrice !== null && (
                     <p className="text-sm font-medium">

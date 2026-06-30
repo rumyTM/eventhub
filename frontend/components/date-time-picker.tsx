@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { format, isValid } from "date-fns";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { CalendarIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -12,33 +13,58 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 interface DateTimePickerProps {
   /** Name for the hidden input — feeds into FormData on submit. */
   name: string;
-  /** Initial ISO string value (e.g. from an existing API record). */
+  /** Initial value as a UTC ISO string (e.g. from an existing API record). */
   defaultValue?: string;
+  /**
+   * IANA timezone the picked date/time is wall-clock in (e.g. "Asia/Dhaka") — required so the
+   * submitted value is a correct UTC instant regardless of the browser's own timezone. A vendor in
+   * New York creating a "6:00 PM Asia/Dhaka" event must submit the same UTC instant a vendor in
+   * Dhaka would for the same wall-clock entry.
+   */
+  timeZone: string;
   /** Dates after this are disabled in the calendar picker. */
   maxDate?: Date;
   className?: string;
 }
 
-function parseDefault(val?: string): { date: Date | undefined; time: string } {
+/**
+ * Parse a UTC ISO `defaultValue` into the wall-clock date/time it represents in `timeZone`.
+ * `toZonedTime` returns a Date whose LOCAL getters (getFullYear/getHours/...) read as that wall
+ * clock, so the rest of the component can keep using ordinary local Date getters — it never touches
+ * the browser's own timezone.
+ */
+function parseDefault(val: string | undefined, timeZone: string): { date: Date | undefined; time: string } {
   if (!val) return { date: undefined, time: "00:00" };
-  const d = new Date(val);
-  if (!isValid(d)) return { date: undefined, time: "00:00" };
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return { date: d, time: `${hh}:${mm}` };
+  const zoned = toZonedTime(val, timeZone);
+  if (!isValid(zoned)) return { date: undefined, time: "00:00" };
+  const hh = String(zoned.getHours()).padStart(2, "0");
+  const mm = String(zoned.getMinutes()).padStart(2, "0");
+  return { date: zoned, time: `${hh}:${mm}` };
 }
 
-export function DateTimePicker({ name, defaultValue, maxDate, className }: DateTimePickerProps) {
-  const init = parseDefault(defaultValue);
+export function DateTimePicker({ name, defaultValue, timeZone, maxDate, className }: DateTimePickerProps) {
+  // Computed once at mount from the initial props — intentionally NOT re-derived when `timeZone`
+  // changes later (e.g. the vendor switches the timezone dropdown after picking a date/time): the
+  // wall-clock numbers the vendor chose should stay put, only their UTC meaning shifts. Re-deriving
+  // from `defaultValue` on every timezone change would also wipe a fresh (no-defaultValue) selection.
+  const [init] = React.useState(() => parseDefault(defaultValue, timeZone));
   const [date, setDate] = React.useState<Date | undefined>(init.date);
   const [time, setTime] = React.useState(init.time);
   const [open, setOpen] = React.useState(false);
 
-  const combined = date ? `${format(date, "yyyy-MM-dd")}T${time}` : "";
+  // Combine the wall-clock date + time-of-day, then convert FROM `timeZone` TO the correct UTC
+  // instant. This is the one place the actual UTC value is computed — everything else in this
+  // component only ever reads/writes wall-clock numbers.
+  const combined = React.useMemo(() => {
+    if (!date) return "";
+    const wallClock = `${format(date, "yyyy-MM-dd")}T${time}:00`;
+    const utc = fromZonedTime(wallClock, timeZone);
+    return isValid(utc) ? utc.toISOString() : "";
+  }, [date, time, timeZone]);
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      {/* Hidden input carries the combined datetime into FormData on submit */}
+      {/* Hidden input carries the combined UTC datetime into FormData on submit */}
       <input type="hidden" name={name} value={combined} />
 
       {/* Date — shadcn Calendar inside a Popover */}

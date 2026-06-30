@@ -63,29 +63,30 @@ final class RefundService
         $payment = $this->payments->succeededForOrder($order->id)
             ?? throw new RefundNotAllowedException(__('api.refunds.no_payment'));
 
-        // Cheap idempotent short-circuit: an order may have only one open refund or dispute at a time.
-        $openRefund = $this->refunds->findOpenForOrder($order->id);
-        if ($openRefund !== null) {
-            return $openRefund;
+        // A previously rejected dispute is a final admin ruling — no further refund requests allowed.
+        if ($this->disputes->hasRejectedForOrder($order->id)) {
+            throw new RefundNotAllowedException(__('api.refunds.dispute_rejected_final'));
         }
 
-        $openDispute = $this->disputes->findOpenForOrder($order->id);
-        if ($openDispute !== null) {
-            return $openDispute;
+        // Guard: an order may have only one open refund or dispute at a time.
+        if ($this->refunds->findOpenForOrder($order->id) !== null) {
+            throw new RefundNotAllowedException(__('api.refunds.refund_already_pending'));
+        }
+
+        if ($this->disputes->findOpenForOrder($order->id) !== null) {
+            throw new RefundNotAllowedException(__('api.refunds.dispute_already_open'));
         }
 
         // Authoritative create: lock the order row so concurrent requests serialize.
         return DB::transaction(function () use ($order, $payment, $reason, $items): Refund|Dispute {
             $this->orders->lockForUpdate($order->id);
 
-            $existingRefund = $this->refunds->findOpenForOrder($order->id);
-            if ($existingRefund !== null) {
-                return $existingRefund;
+            if ($this->refunds->findOpenForOrder($order->id) !== null) {
+                throw new RefundNotAllowedException(__('api.refunds.refund_already_pending'));
             }
 
-            $existingDispute = $this->disputes->findOpenForOrder($order->id);
-            if ($existingDispute !== null) {
-                return $existingDispute;
+            if ($this->disputes->findOpenForOrder($order->id) !== null) {
+                throw new RefundNotAllowedException(__('api.refunds.dispute_already_open'));
             }
 
             [$selectedBaseMinor, $eventStartsAt] = $this->resolveSelection($order, $items);

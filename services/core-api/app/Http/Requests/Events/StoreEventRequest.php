@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Events;
 
+use App\Rules\IsoDateTimeWithOffset;
 use DateTimeZone;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -24,8 +25,8 @@ class StoreEventRequest extends FormRequest
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:5000'],
             'timezone' => ['required', 'string', Rule::in(DateTimeZone::listIdentifiers())],
-            'starts_at' => ['required', 'date'],
-            'ends_at' => ['required', 'date', 'after:starts_at'],
+            'starts_at' => ['required', 'date', new IsoDateTimeWithOffset],
+            'ends_at' => ['required', 'date', 'after:starts_at', new IsoDateTimeWithOffset],
             'capacity' => ['required', 'integer', 'min:1'],
         ];
     }

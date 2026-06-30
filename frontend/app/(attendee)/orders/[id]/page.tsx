@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { formatMoney, formatDate } from "@/lib/utils";
+import { formatMoney, formatDate, formatEventNames } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
 import { CreditCard } from "lucide-react";
@@ -56,6 +56,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const order = data.order;
   const canRefund =
     !order.has_pending_refund &&
+    !order.latest_dispute &&
     (order.status.value === "paid" || order.status.value === "partially_refunded");
   const canPay =
     order.status.value === "pending" &&
@@ -92,7 +93,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-mono text-muted-foreground">{order.id}</CardTitle>
+            <div>
+              <CardTitle>{formatEventNames(order.events)}</CardTitle>
+              <p className="font-mono text-xs text-muted-foreground">#{order.id.slice(-8)}</p>
+            </div>
             <Badge>{order.status.label}</Badge>
           </div>
         </CardHeader>
@@ -105,12 +109,13 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 ? Math.round((1 - item.unit_price / item.original_price!) * 100)
                 : 0;
               const savedPerUnit = hasDiscount ? item.original_price! - item.unit_price : 0;
+              const ticketLabel = item.ticket_type?.kind.label ?? "Ticket";
 
               return (
                 <div key={item.id} className="space-y-1">
                   <div className="flex items-start justify-between text-sm">
                     <div>
-                      <span>Ticket × {item.quantity}</span>
+                      <span>{ticketLabel} × {item.quantity}</span>
                       {hasDiscount && (
                         <span className="ml-2 rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-700">
                           {discountPct}% group discount
@@ -163,6 +168,48 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </CardContent>
       </Card>
 
+      {/* Tickets — shown after payment succeeds (tickets are issued only then) */}
+      {order.tickets && order.tickets.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Tickets</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {order.tickets.map((ticket, idx) => (
+              <div key={ticket.id} className="rounded-md border p-3 text-sm space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">
+                    {ticket.ticket_type?.kind.label ?? "Ticket"} #{idx + 1}
+                  </span>
+                  <Badge
+                    variant={
+                      ticket.status.value === "checked_in"
+                        ? "success"
+                        : ticket.status.value === "refunded"
+                        ? "secondary"
+                        : ticket.status.value === "transferred"
+                        ? "outline"
+                        : "default"
+                    }
+                  >
+                    {ticket.status.label}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">QR Code</span>
+                  <code className="rounded bg-muted px-2 py-0.5 font-mono text-xs">{ticket.qr_code}</code>
+                </div>
+                {ticket.checked_in_at && (
+                  <p className="text-xs text-muted-foreground">
+                    Checked in: {formatDate(ticket.checked_in_at)}
+                  </p>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Refund summary — shown whenever a refund exists (any status) */}
       {order.latest_refund && (
         <Card>
@@ -205,6 +252,65 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               order.latest_refund.status.value === "pending") && (
               <p className="pt-1 text-xs text-muted-foreground">
                 Your refund is being processed. You will receive a confirmation once it is complete.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Dispute section — shown when a dispute exists (open / resolved / rejected) */}
+      {order.latest_dispute && (
+        <Card className={
+          order.latest_dispute.status.value === "rejected"
+            ? "border-red-200 bg-red-50"
+            : order.latest_dispute.status.value === "resolved"
+            ? "border-green-200 bg-green-50"
+            : "border-yellow-200 bg-yellow-50"
+        }>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Refund Dispute</CardTitle>
+              <Badge
+                variant={
+                  order.latest_dispute.status.value === "rejected"
+                    ? "destructive"
+                    : order.latest_dispute.status.value === "resolved"
+                    ? "default"
+                    : "secondary"
+                }
+              >
+                {order.latest_dispute.status.label}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Reason submitted</span>
+              <span className="capitalize">{order.latest_dispute.reason.replace(/_/g, " ")}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Opened</span>
+              <span>{formatDate(order.latest_dispute.created_at)}</span>
+            </div>
+            {order.latest_dispute.resolution && (
+              <div className="space-y-1 border-t pt-2">
+                <span className="text-muted-foreground">Admin response</span>
+                <p className="rounded bg-white/60 px-3 py-2 text-sm">{order.latest_dispute.resolution}</p>
+              </div>
+            )}
+            {order.latest_dispute.status.value === "open" && (
+              <p className="pt-1 text-xs text-yellow-800">
+                Your dispute is under review. An admin will respond shortly.
+              </p>
+            )}
+            {order.latest_dispute.status.value === "rejected" && (
+              <p className="pt-1 text-xs text-red-700">
+                Your refund dispute was denied. No refund will be issued for this order.
+              </p>
+            )}
+            {order.latest_dispute.status.value === "resolved" && (
+              <p className="pt-1 text-xs text-green-700">
+                Your dispute was approved. A full refund has been queued — check the refund section above.
               </p>
             )}
           </CardContent>

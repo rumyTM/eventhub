@@ -169,7 +169,20 @@ final class OrderController extends Controller
 
         $this->authorize('view', $order);
 
-        $order->load(['items', 'holds', 'latestPayment', 'latestOpenRefund', 'latestRefund']);
+        $order->load([
+            'items',
+            // withTrashed: a cancelled event's ticket_type/event are soft-deleted, but a historical
+            // order should still show which event it was for.
+            'items.ticketType' => fn ($q) => $q->withTrashed(),
+            'items.ticketType.event' => fn ($q) => $q->withTrashed(),
+            'attendee.user',
+            'holds',
+            'latestPayment',
+            'latestOpenRefund',
+            'latestRefund',
+            'latestDispute',
+            'tickets.ticketType' => fn ($q) => $q->withTrashed(),
+        ]);
 
         return ApiResponse::success(
             data: ['order' => new OrderResource($order)],

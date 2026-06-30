@@ -4,6 +4,7 @@ namespace App\Http\Requests\Events;
 
 use App\Enums\EventStatus;
 use App\Models\Event;
+use App\Rules\IsoDateTimeWithOffset;
 use DateTimeZone;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -28,8 +29,8 @@ class UpdateEventRequest extends FormRequest
             'title' => ['sometimes', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string', 'max:5000'],
             'timezone' => ['sometimes', 'string', Rule::in(DateTimeZone::listIdentifiers())],
-            'starts_at' => ['sometimes', 'date'],
-            'ends_at' => ['sometimes', 'date'],
+            'starts_at' => ['sometimes', 'date', new IsoDateTimeWithOffset],
+            'ends_at' => ['sometimes', 'date', new IsoDateTimeWithOffset],
             'capacity' => ['sometimes', 'integer', 'min:1'],
             'status' => ['sometimes', 'string', Rule::in(array_column(EventStatus::cases(), 'value'))],
         ];

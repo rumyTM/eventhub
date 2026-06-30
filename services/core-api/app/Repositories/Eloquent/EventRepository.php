@@ -15,6 +15,7 @@ final class EventRepository implements EventRepositoryInterface
     {
         return Event::query()
             ->where('status', EventStatus::Published)
+            ->with('vendor')
             ->orderBy('starts_at')
             ->paginate($perPage);
     }

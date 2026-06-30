@@ -11,6 +11,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: 30_000,
+            // Always hit the network on mount (e.g. clicking a nav link), even if cached data is
+            // within staleTime — the cache still renders instantly while the refetch resolves, so
+            // this trades one extra request for never showing data that's gone stale from another
+            // page's mutation (e.g. approving a vendor, then navigating back to the pending queue).
+            refetchOnMount: "always",
             retry: (failureCount, error) => {
               // Don't retry on 401/403/404
               if (

@@ -102,6 +102,11 @@ class Order extends Model
         return $this->hasMany(Dispute::class);
     }
 
+    public function latestDispute(): HasOne
+    {
+        return $this->hasOne(Dispute::class)->latestOfMany();
+    }
+
     public function payoutItems(): HasMany
     {
         return $this->hasMany(PayoutItem::class);

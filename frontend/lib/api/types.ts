@@ -54,6 +54,7 @@ export interface TicketType {
 export interface Event {
   id: string;
   vendor_id: string;
+  vendor?: { id: string; business_name: string };
   title: string;
   description: string;
   timezone: string;
@@ -75,9 +76,15 @@ export interface EventListResponse {
 export interface OrderItem {
   id: string;
   ticket_type_id: string;
+  ticket_type?: { id: string; kind: EnumValue } | null;
   quantity: number;
   unit_price: number;
   original_price: number | null;
+}
+
+export interface OrderEventSummary {
+  id: string;
+  title: string;
 }
 
 export interface Hold {
@@ -96,6 +103,22 @@ export interface RefundSummary {
   created_at: string;
 }
 
+export interface DisputeSummary {
+  id: string;
+  status: EnumValue;
+  reason: string;
+  resolution: string | null;
+  created_at: string;
+}
+
+export interface TicketSummary {
+  id: string;
+  qr_code: string;
+  ticket_type: { id: string; kind: EnumValue } | null;
+  status: EnumValue;
+  checked_in_at: string | null;
+}
+
 export interface Order {
   id: string;
   status: EnumValue;
@@ -103,11 +126,15 @@ export interface Order {
   currency: string;
   commission_rate: string;
   items?: OrderItem[];
+  events?: OrderEventSummary[];
+  attendee?: { id: string; name: string | null };
   holds?: Hold[];
   hold_expires_at?: string | null;
   payment_failed?: boolean;
   has_pending_refund?: boolean;
   latest_refund?: RefundSummary | null;
+  latest_dispute?: DisputeSummary | null;
+  tickets?: TicketSummary[];
   created_at: string;
 }
 
@@ -135,6 +162,8 @@ export interface DisputeItem {
     total: number;
     currency: string;
     status: EnumValue;
+    attendee_name: string | null;
+    events: OrderEventSummary[];
     created_at: string;
   };
   created_at: string;

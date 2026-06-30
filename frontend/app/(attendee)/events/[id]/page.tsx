@@ -8,7 +8,8 @@ import { ErrorDisplay } from "@/components/error-display";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate, formatMoney } from "@/lib/utils";
+import { formatEventDateTime, formatMoney } from "@/lib/utils";
+import { EventDateTime } from "@/components/event-date-time";
 import { toast } from "sonner";
 import { CalendarDays } from "lucide-react";
 
@@ -80,15 +81,20 @@ export default function EventDetailPage({ params }: { params: { id: string } }) 
           <h1 className="text-3xl font-bold">{evt.title}</h1>
           <Badge>{evt.status.label}</Badge>
         </div>
+        {evt.vendor && (
+          <p className="mt-1 text-sm text-muted-foreground">Organized by {evt.vendor.business_name}</p>
+        )}
         <p className="mt-2 text-muted-foreground">{evt.description}</p>
       </div>
 
-      <div className="flex gap-4 text-sm text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-4 w-4" />
-          <span>{formatDate(evt.starts_at)} — {formatDate(evt.ends_at)}</span>
+      <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+        <div className="flex items-start gap-2">
+          <CalendarDays className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            <EventDateTime iso={evt.starts_at} timezone={evt.timezone} /> —{" "}
+            <EventDateTime iso={evt.ends_at} timezone={evt.timezone} />
+          </span>
         </div>
-        <div>Timezone: {evt.timezone}</div>
         <div>Capacity: {evt.capacity}</div>
       </div>
 
@@ -109,7 +115,8 @@ export default function EventDetailPage({ params }: { params: { id: string } }) 
                       <p className="text-sm text-muted-foreground">{formatMoney(tt.price)} · {available} available</p>
                       {tt.sales_start && (
                         <p className="text-xs text-muted-foreground">
-                          Sales: {formatDate(tt.sales_start)} – {formatDate(tt.sales_end)}
+                          Sales: {formatEventDateTime(tt.sales_start, evt.timezone).eventLocal} –{" "}
+                          {formatEventDateTime(tt.sales_end, evt.timezone).eventLocal}
                         </p>
                       )}
                       {tt.group_size && tt.group_discount && (

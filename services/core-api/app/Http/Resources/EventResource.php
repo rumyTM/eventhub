@@ -21,6 +21,10 @@ class EventResource extends JsonResource
         return [
             'id' => $this->id,
             'vendor_id' => $this->vendor_id,
+            'vendor' => $this->whenLoaded('vendor', fn () => [
+                'id' => $this->vendor->id,
+                'business_name' => $this->vendor->business_name,
+            ]),
             'title' => $this->title,
             'description' => $this->description,
             'timezone' => $this->timezone,

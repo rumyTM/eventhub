@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DateTimePicker } from "@/components/date-time-picker";
+import { TimezoneSelect } from "@/components/timezone-select";
 import { toast } from "sonner";
 import { useState } from "react";
 
@@ -15,6 +16,7 @@ export default function NewEventPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [timezone, setTimezone] = useState("Asia/Dhaka");
 
   const mutation = useMutation({
     mutationFn: eventsApi.create,
@@ -68,19 +70,22 @@ export default function NewEventPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Starts at</Label>
-              <DateTimePicker name="starts_at" />
+              <DateTimePicker name="starts_at" timeZone={timezone} />
               {errors.starts_at && <p className="text-xs text-destructive">{errors.starts_at}</p>}
             </div>
             <div className="space-y-2">
               <Label>Ends at</Label>
-              <DateTimePicker name="ends_at" />
+              <DateTimePicker name="ends_at" timeZone={timezone} />
               {errors.ends_at && <p className="text-xs text-destructive">{errors.ends_at}</p>}
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="timezone">Timezone</Label>
-              <Input id="timezone" name="timezone" defaultValue="Asia/Dhaka" required />
+              <TimezoneSelect id="timezone" name="timezone" value={timezone} onValueChange={setTimezone} />
+              <p className="text-xs text-muted-foreground">
+                The times above are wall-clock in this zone.
+              </p>
               {errors.timezone && <p className="text-xs text-destructive">{errors.timezone}</p>}
             </div>
             <div className="space-y-2">

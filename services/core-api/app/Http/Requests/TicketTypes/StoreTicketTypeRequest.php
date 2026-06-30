@@ -3,6 +3,7 @@
 namespace App\Http\Requests\TicketTypes;
 
 use App\Enums\TicketKind;
+use App\Rules\IsoDateTimeWithOffset;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -22,7 +23,7 @@ class StoreTicketTypeRequest extends FormRequest
     public function rules(): array
     {
         $event = $this->route('event');
-        $salesEndRules = ['nullable', 'date', 'after:sales_start'];
+        $salesEndRules = ['nullable', 'date', 'after:sales_start', new IsoDateTimeWithOffset];
         if ($event !== null) {
             $salesEndRules[] = 'before_or_equal:'.$event->starts_at->toIso8601String();
         }
@@ -34,7 +35,7 @@ class StoreTicketTypeRequest extends FormRequest
             'quantity_total' => ['required', 'integer', 'min:1'],
             'group_size' => ['nullable', 'integer', 'min:2'],
             'group_discount' => ['nullable', 'required_with:group_size', 'numeric', 'min:0', 'lt:1'],
-            'sales_start' => ['nullable', 'date'],
+            'sales_start' => ['nullable', 'date', new IsoDateTimeWithOffset],
             'sales_end' => $salesEndRules,
         ];
     }

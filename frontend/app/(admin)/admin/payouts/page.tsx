@@ -29,7 +29,11 @@ export default function AdminPayoutsPage() {
   const buildMutation = useMutation({
     mutationFn: () => payoutsApi.build({}),
     onSuccess: (res) => {
-      toast.success(`Payout batch built: ${res.count} payout(s) created`);
+      if (res.count === 0) {
+        toast.info("Batch already up to date — no new payouts needed.");
+      } else {
+        toast.success(`Payout batch built: ${res.count} new payout(s) created.`);
+      }
       qc.invalidateQueries({ queryKey: ["admin-payouts"] });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Failed to build batch"),

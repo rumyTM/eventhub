@@ -11,6 +11,9 @@ interface DisputeRepositoryInterface
 
     public function findOpenForOrder(string $orderId): ?Dispute;
 
+    /** True when the order has a rejected (final) dispute — blocks further refund requests. */
+    public function hasRejectedForOrder(string $orderId): bool;
+
     /** Paginated list of open disputes with their orders eager-loaded (admin queue). */
     public function listOpen(int $perPage = 15): LengthAwarePaginator;
 

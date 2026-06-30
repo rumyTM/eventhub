@@ -53,6 +53,11 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        // ── 0. Platform settings ───────────────────────────────────────────────
+        // Keep in sync with requirement-analysis.md §3 — 10% commission, 5 000 BDT payout minimum.
+        \App\Models\Setting::create(['key' => 'commission_rate',   'value' => '0.1000', 'type' => 'string']);
+        \App\Models\Setting::create(['key' => 'payout_threshold', 'value' => '500000', 'type' => 'integer']);
+
         // ── 1. Admin ─────────────────────────────────────────────────────────────
         $admin = User::factory()->admin()->create([
             'name'     => 'Platform Admin',
@@ -297,7 +302,7 @@ class DatabaseSeeder extends Seeder
                 'order_id'        => $order->id,
                 'gateway'         => 'stripe_sim',
                 'status'          => PaymentStatus::Succeeded,
-                'external_ref'    => '[PLACEHOLDER-SIM-REF-OSD-'.($i + 1).']',
+                'external_ref'    => sprintf('SEEDOSD%019d', $i + 1),
                 'idempotency_key' => 'pay:osd-'.($i + 1).':'.Str::uuid(),
                 'amount'          => $total,
                 'currency'        => 'BDT',
@@ -401,7 +406,7 @@ class DatabaseSeeder extends Seeder
                 'order_id'        => $order->id,
                 'gateway'         => 'paypal_sim',
                 'status'          => PaymentStatus::Succeeded,
-                'external_ref'    => '[PLACEHOLDER-SIM-REF-FIN-'.($i + 1).']',
+                'external_ref'    => sprintf('SEEDFIN%019d', $i + 1),
                 'idempotency_key' => 'pay:fintech-'.($i + 1).':'.Str::uuid(),
                 'amount'          => $total,
                 'currency'        => 'BDT',
@@ -512,7 +517,7 @@ class DatabaseSeeder extends Seeder
             'order_id'        => $summitOrder->id,
             'gateway'         => 'stripe_sim',
             'status'          => PaymentStatus::Succeeded,
-            'external_ref'    => '[PLACEHOLDER-SIM-REF-SUM-ALICE]',
+            'external_ref'    => 'SEEDSUMALICE00000000000001',
             'idempotency_key' => 'pay:summit-alice:'.Str::uuid(),
             'amount'          => 100000,
             'currency'        => 'BDT',
@@ -548,7 +553,7 @@ class DatabaseSeeder extends Seeder
             'order_id'        => $summitOrderBob->id,
             'gateway'         => 'stripe_sim',
             'status'          => PaymentStatus::Succeeded,
-            'external_ref'    => '[PLACEHOLDER-SIM-REF-SUM-BOB]',
+            'external_ref'    => 'SEEDSUMBOB0000000000000001',
             'idempotency_key' => 'pay:summit-bob:'.Str::uuid(),
             'amount'          => 50000,
             'currency'        => 'BDT',
@@ -584,7 +589,7 @@ class DatabaseSeeder extends Seeder
             'order_id'        => $workshopOrder->id,
             'gateway'         => 'stripe_sim',
             'status'          => PaymentStatus::Succeeded,
-            'external_ref'    => '[PLACEHOLDER-SIM-REF-WSHP-REFUND]',
+            'external_ref'    => 'SEEDWSHPRF0000000000000001',
             'idempotency_key' => 'pay:workshop-refund:'.Str::uuid(),
             'amount'          => 60000,
             'currency'        => 'BDT',
@@ -631,7 +636,7 @@ class DatabaseSeeder extends Seeder
             'order_id'        => $workshopOrderBob->id,
             'gateway'         => 'stripe_sim',
             'status'          => PaymentStatus::Succeeded,
-            'external_ref'    => '[PLACEHOLDER-SIM-REF-WSHP-BOB]',
+            'external_ref'    => 'SEEDWSHPBOB000000000000001',
             'idempotency_key' => 'pay:workshop-bob:'.Str::uuid(),
             'amount'          => 60000,
             'currency'        => 'BDT',
@@ -684,7 +689,7 @@ class DatabaseSeeder extends Seeder
             'order_id'        => $pitchOrder->id,
             'gateway'         => 'stripe_sim',
             'status'          => PaymentStatus::Succeeded,
-            'external_ref'    => '[PLACEHOLDER-SIM-REF-PITCH]',
+            'external_ref'    => 'SEEDPITCH00000000000000001',
             'idempotency_key' => 'pay:pitch-dispute:'.Str::uuid(),
             'amount'          => 30000,
             'currency'        => 'BDT',
@@ -740,6 +745,96 @@ class DatabaseSeeder extends Seeder
             'expires_at'     => now()->addMinutes(12), // ~12 min left on the hold
         ]);
 
+        // ════════════════════════════════════════════════════════════════════════
+        // [F] Dhaka DevFest 2025 — COMPLETED 3 days ago, NO payout yet
+        //     → vendor can click "Request Payout" and see live preview + confirm
+        // ════════════════════════════════════════════════════════════════════════
+
+        $devFest = Event::factory()->completed()->forVendor($vendor)->create([
+            'title'       => 'Dhaka DevFest 2025',
+            'description' => 'Annual developer festival featuring tracks on mobile, web, cloud, and AI.',
+            'starts_at'   => now()->subDays(3),
+            'ends_at'     => now()->subDays(3)->addHours(8),
+            'capacity'    => 400,
+            'timezone'    => 'Asia/Dhaka',
+        ]);
+
+        $devFestGeneral = TicketType::factory()->forEvent($devFest)->create([
+            'kind'           => TicketKind::General,
+            'price'          => 200000,  // 2 000 BDT — revenue must exceed 5 000 BDT net threshold
+            'quantity_total' => 400,
+            'quantity_sold'  => 5,       // 3 orders (2+2+1 tickets)
+            'sales_start'    => now()->subDays(30),
+            'sales_end'      => now()->subDays(4),
+        ]);
+
+        $devFestBatches = [
+            ['attendee' => $attendee,  'qty' => 2, 'unit' => 200000],  // 4 000 BDT
+            ['attendee' => $attendee2, 'qty' => 2, 'unit' => 200000],  // 4 000 BDT
+            ['attendee' => $attendee,  'qty' => 1, 'unit' => 200000],  // 2 000 BDT
+        ];
+
+        foreach ($devFestBatches as $i => $b) {
+            $total = $b['qty'] * $b['unit'];
+            $order = Order::create([
+                'attendee_id'     => $b['attendee']->id,
+                'status'          => OrderStatus::Paid,
+                'total'           => $total,
+                'currency'        => 'BDT',
+                'commission_rate' => self::COMMISSION_RATE,
+                'idempotency_key' => 'demo-devfest-'.($i + 1).':'.Str::uuid(),
+            ]);
+
+            $item = OrderItem::create([
+                'order_id'       => $order->id,
+                'ticket_type_id' => $devFestGeneral->id,
+                'quantity'       => $b['qty'],
+                'unit_price'     => $b['unit'],
+                'original_price' => $b['unit'],
+            ]);
+
+            for ($t = 1; $t <= $b['qty']; $t++) {
+                Ticket::create([
+                    'order_id'      => $order->id,
+                    'order_item_id' => $item->id,
+                    'ticket_type_id'=> $devFestGeneral->id,
+                    'qr_code'       => 'DEV-QR-'.strtoupper(Str::random(8)).'-'.$t,
+                    'status'        => 'valid',
+                ]);
+            }
+
+            Payment::create([
+                'order_id'        => $order->id,
+                'gateway'         => 'stripe_sim',
+                'status'          => PaymentStatus::Succeeded,
+                'external_ref'    => sprintf('SEEDDEV%019d', $i + 1),
+                'idempotency_key' => 'pay:devfest-'.($i + 1).':'.Str::uuid(),
+                'amount'          => $total,
+                'currency'        => 'BDT',
+            ]);
+
+            $commissionAmount = (int) ($total * 0.10);
+
+            LedgerEntry::create([
+                'vendor_id'    => $vendor->id,
+                'subject_type' => 'order',
+                'subject_id'   => $order->id,
+                'entry_type'   => LedgerEntryType::Sale,
+                'amount'       => $total,
+                'currency'     => 'BDT',
+            ]);
+
+            LedgerEntry::create([
+                'vendor_id'    => $vendor->id,
+                'subject_type' => 'order',
+                'subject_id'   => $order->id,
+                'entry_type'   => LedgerEntryType::Commission,
+                'amount'       => -$commissionAmount,
+                'currency'     => 'BDT',
+            ]);
+        }
+        // No Payout or PayoutItem created for DevFest — vendor requests it live in the demo.
+
         // ── Print credentials ───────────────────────────────────────────────────
         $this->command->newLine();
         $this->command->info('═══════════════ Demo credentials (test only — not real) ════════════════');
@@ -758,8 +853,9 @@ class DatabaseSeeder extends Seeder
         $this->command->info('  [A] Published  → "DhakaTech Summit 2026"          (+30 days, early-bird sold out)');
         $this->command->info('  [B] Ongoing    → "Dhaka Startup Pitch Night"       (in progress, group bundle)');
         $this->command->info('  [C] Published  → "Laravel & Vue Workshop"          (+14 days)');
-        $this->command->info('  [D] Completed  → "Bangladesh Open Source Day"      (10 days ago, NO payout yet)');
+        $this->command->info('  [D] Completed  → "Bangladesh Open Source Day"      (10 days ago, PENDING payout pre-built)');
         $this->command->info('  [E] Completed  → "Fintech Innovation Summit"       (25 days ago, PAID payout)');
+        $this->command->info('  [F] Completed  → "Dhaka DevFest 2025"              (3 days ago, NO payout → vendor can request live)');
         $this->command->info('');
         $this->command->info('Payout demo (admin panel):');
         $this->command->info('  1. Log in as admin → Payouts → 1 PENDING payout already seeded (Acme Events Ltd)');

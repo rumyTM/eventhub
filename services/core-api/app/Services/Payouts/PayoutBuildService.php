@@ -33,8 +33,8 @@ final class PayoutBuildService
     /** Platform setting key for the minimum payout threshold (minor units). */
     private const THRESHOLD_KEY = 'payout_threshold';
 
-    /** Default threshold when no setting exists: 100 BDT = 10 000 poisha. */
-    private const DEFAULT_THRESHOLD = 10_000;
+    /** Default threshold when no setting exists: 5 000 BDT = 500 000 poisha (requirement-analysis.md §3). */
+    private const DEFAULT_THRESHOLD = 500_000;
 
     public function __construct(
         private readonly OrderRepositoryInterface $orders,
@@ -187,8 +187,9 @@ final class PayoutBuildService
 
     /**
      * Build pending payouts for ALL vendors that have eligible funds in this batch window. Returns the
-     * list of newly-created (or already-existing) Payout records; vendors with nothing eligible or
-     * below-threshold are omitted.
+     * list of **newly-created** Payout records only — vendors whose payout already exists for this
+     * batch_id are silently skipped (idempotent). Vendors with nothing eligible or below-threshold
+     * are also omitted.
      *
      * @return list<Payout>
      */
@@ -202,9 +203,7 @@ final class PayoutBuildService
             $idempotencyKey = "payout:{$vendorId}:{$batchId}";
             $existing = $this->payouts->findByIdempotencyKey($idempotencyKey);
             if ($existing !== null && $existing->status !== PayoutStatus::Failed) {
-                $payouts[] = $existing; // already built for this batch in a prior call
-
-                continue;
+                continue; // already built for this batch — skip, do not count as "created"
             }
             $payout = $this->buildForVendor($vendorId, $batchId);
             if ($payout !== null) {

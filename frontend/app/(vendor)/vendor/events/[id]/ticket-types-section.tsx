@@ -17,6 +17,7 @@ import { Pencil, Trash2 } from "lucide-react";
 interface Props {
   eventId: string;
   eventStartsAt: string;
+  eventTimezone: string;
   ticketTypes: TicketType[];
   loading: boolean;
   onRefresh: () => void;
@@ -28,12 +29,13 @@ interface TicketTypeFormProps {
   mode: ModalMode;
   initial?: TicketType;
   eventStartsAt: string;
+  eventTimezone: string;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   isPending: boolean;
   errors: Record<string, string>;
 }
 
-function TicketTypeForm({ mode, initial, eventStartsAt, onSubmit, isPending, errors }: TicketTypeFormProps) {
+function TicketTypeForm({ mode, initial, eventStartsAt, eventTimezone, onSubmit, isPending, errors }: TicketTypeFormProps) {
   const [kind, setKind] = useState(initial?.kind?.value ?? "general");
   const [groupEnabled, setGroupEnabled] = useState(
     !!(initial?.group_size && initial?.group_discount),
@@ -93,6 +95,7 @@ function TicketTypeForm({ mode, initial, eventStartsAt, onSubmit, isPending, err
         <DateTimePicker
           name="sales_start"
           defaultValue={initial?.sales_start ?? new Date().toISOString()}
+          timeZone={eventTimezone}
         />
         {errors.sales_start && (
           <p className="text-xs text-destructive">{errors.sales_start}</p>
@@ -103,6 +106,7 @@ function TicketTypeForm({ mode, initial, eventStartsAt, onSubmit, isPending, err
         <DateTimePicker
           name="sales_end"
           defaultValue={initial?.sales_end ?? eventStartsAt}
+          timeZone={eventTimezone}
           maxDate={new Date(eventStartsAt)}
         />
         {errors.sales_end && <p className="text-xs text-destructive">{errors.sales_end}</p>}
@@ -180,7 +184,7 @@ function TicketTypeForm({ mode, initial, eventStartsAt, onSubmit, isPending, err
   );
 }
 
-export function TicketTypesSection({ eventId, eventStartsAt, ticketTypes, loading, onRefresh }: Props) {
+export function TicketTypesSection({ eventId, eventStartsAt, eventTimezone, ticketTypes, loading, onRefresh }: Props) {
   const qc = useQueryClient();
   const [modalMode, setModalMode] = useState<ModalMode>("add");
   const [open, setOpen] = useState(false);
@@ -365,7 +369,7 @@ export function TicketTypesSection({ eventId, eventStartsAt, ticketTypes, loadin
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Dialog open={open} onOpenChange={handleOpenChange} modal={false}>
         <DialogContent
           className="max-w-lg"
           onInteractOutside={(e) => e.preventDefault()}
@@ -379,6 +383,7 @@ export function TicketTypesSection({ eventId, eventStartsAt, ticketTypes, loadin
             mode={modalMode}
             initial={editTarget}
             eventStartsAt={eventStartsAt}
+            eventTimezone={eventTimezone}
             onSubmit={handleSubmit}
             isPending={isPending}
             errors={formErrors}

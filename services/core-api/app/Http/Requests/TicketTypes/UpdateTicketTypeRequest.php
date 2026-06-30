@@ -4,6 +4,7 @@ namespace App\Http\Requests\TicketTypes;
 
 use App\Enums\TicketKind;
 use App\Models\TicketType;
+use App\Rules\IsoDateTimeWithOffset;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -30,8 +31,8 @@ class UpdateTicketTypeRequest extends FormRequest
             'quantity_total' => ['sometimes', 'integer', 'min:1'],
             'group_size' => ['sometimes', 'nullable', 'integer', 'min:2'],
             'group_discount' => ['sometimes', 'nullable', 'numeric', 'min:0', 'lt:1'],
-            'sales_start' => ['sometimes', 'nullable', 'date'],
-            'sales_end' => ['sometimes', 'nullable', 'date'],
+            'sales_start' => ['sometimes', 'nullable', 'date', new IsoDateTimeWithOffset],
+            'sales_end' => ['sometimes', 'nullable', 'date', new IsoDateTimeWithOffset],
         ];
     }
 

@@ -7,7 +7,7 @@ import { ErrorDisplay } from "@/components/error-display";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatMoney, formatDate } from "@/lib/utils";
+import { formatMoney, formatDate, formatEventNames } from "@/lib/utils";
 import Link from "next/link";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "success" | "warning" | "destructive" | "outline"> = {
@@ -44,7 +44,7 @@ export default function OrderHistoryPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted">
               <tr>
-                <th className="px-4 py-2 text-left">Order ID</th>
+                <th className="px-4 py-2 text-left">Event</th>
                 <th className="px-4 py-2 text-left">Status</th>
                 <th className="px-4 py-2 text-right">Total</th>
                 <th className="px-4 py-2 text-left">Date</th>
@@ -54,11 +54,28 @@ export default function OrderHistoryPage() {
             <tbody>
               {orders.map((order) => (
                 <tr key={order.id} className="border-t hover:bg-muted/30">
-                  <td className="px-4 py-2 font-mono text-xs">{order.id.slice(-12)}</td>
                   <td className="px-4 py-2">
-                    <Badge variant={STATUS_VARIANT[order.status.value] ?? "secondary"}>
-                      {order.status.label}
-                    </Badge>
+                    <div>{formatEventNames(order.events)}</div>
+                    <div className="font-mono text-xs text-muted-foreground">#{order.id.slice(-8)}</div>
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge variant={STATUS_VARIANT[order.status.value] ?? "secondary"}>
+                        {order.status.label}
+                      </Badge>
+                      {order.has_pending_refund && !order.latest_dispute && (
+                        <Badge variant="secondary">Refund Requested</Badge>
+                      )}
+                      {order.latest_dispute?.status.value === "open" && (
+                        <Badge variant="warning">Dispute Pending</Badge>
+                      )}
+                      {order.latest_dispute?.status.value === "resolved" && (
+                        <Badge variant="success">Dispute Approved</Badge>
+                      )}
+                      {order.latest_dispute?.status.value === "rejected" && (
+                        <Badge variant="destructive">Dispute Rejected</Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-2 text-right">{formatMoney(order.total, order.currency)}</td>
                   <td className="px-4 py-2 text-muted-foreground">{formatDate(order.created_at)}</td>

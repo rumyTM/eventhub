@@ -80,7 +80,7 @@ final class EventController extends Controller
 
         Gate::forUser($this->actingUser($request))->authorize('view', $event);
 
-        $event->load('ticketTypes');
+        $event->load(['ticketTypes', 'vendor']);
 
         return ApiResponse::success(
             data: ['event' => new EventResource($event)],

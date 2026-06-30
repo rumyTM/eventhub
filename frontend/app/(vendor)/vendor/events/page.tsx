@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ErrorDisplay } from "@/components/error-display";
 import { EmptyState } from "@/components/empty-state";
-import { formatDate } from "@/lib/utils";
+import { EventDateTime } from "@/components/event-date-time";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
@@ -78,7 +78,9 @@ export default function VendorEventsPage() {
                       {evt.status.label}
                     </Badge>
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">{formatDate(evt.starts_at)}</td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    <EventDateTime iso={evt.starts_at} timezone={evt.timezone} />
+                  </td>
                   <td className="px-4 py-2">{evt.capacity}</td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex items-center justify-end gap-2">

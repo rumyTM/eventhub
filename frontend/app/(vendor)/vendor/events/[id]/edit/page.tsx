@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ErrorDisplay } from "@/components/error-display";
 import { DateTimePicker } from "@/components/date-time-picker";
+import { TimezoneSelect } from "@/components/timezone-select";
 import { toast } from "sonner";
 import { useState } from "react";
 
@@ -17,6 +18,7 @@ export default function EditEventPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const qc = useQueryClient();
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [timezone, setTimezone] = useState<string | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["event", params.id],
@@ -47,6 +49,7 @@ export default function EditEventPage({ params }: { params: { id: string } }) {
   if (!data) return null;
 
   const evt = data.event;
+  const currentTimezone = timezone ?? evt.timezone;
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -79,19 +82,19 @@ export default function EditEventPage({ params }: { params: { id: string } }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Starts at</Label>
-              <DateTimePicker name="starts_at" defaultValue={evt.starts_at} />
+              <DateTimePicker name="starts_at" defaultValue={evt.starts_at} timeZone={currentTimezone} />
               {errors.starts_at && <p className="text-xs text-destructive">{errors.starts_at}</p>}
             </div>
             <div className="space-y-2">
               <Label>Ends at</Label>
-              <DateTimePicker name="ends_at" defaultValue={evt.ends_at} />
+              <DateTimePicker name="ends_at" defaultValue={evt.ends_at} timeZone={currentTimezone} />
               {errors.ends_at && <p className="text-xs text-destructive">{errors.ends_at}</p>}
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="timezone">Timezone</Label>
-              <Input id="timezone" name="timezone" defaultValue={evt.timezone} required />
+              <TimezoneSelect id="timezone" name="timezone" value={currentTimezone} onValueChange={setTimezone} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="capacity">Capacity</Label>

@@ -15,6 +15,7 @@ return [
 
     'validation' => [
         'timezone' => 'The timezone must be a valid IANA time zone identifier.',
+        'datetime_offset' => 'Must be an ISO-8601 datetime with a UTC offset or Z, e.g. 2026-09-20T18:00:00+06:00 — a timezone-less datetime is ambiguous and will not be accepted.',
         'ends_after_starts' => 'The end time must be after the start time.',
         'sales_ends_after_starts' => 'The sales end time must be after the sales start time.',
         'sales_end_before_event_start' => 'Ticket sales must close by the time the event starts.',
@@ -86,6 +87,9 @@ return [
         'webhook_amount_mismatch' => 'The refund webhook amount or currency does not match the open refund.',
         'not_allowed' => 'This order cannot be refunded.',
         'no_payment' => 'No completed payment was found for this order.',
+        'refund_already_pending' => 'A refund is already pending for this order.',
+        'dispute_already_open' => 'A dispute is already open for this order — an admin is reviewing it.',
+        'dispute_rejected_final' => 'Your refund dispute was reviewed and denied. No further refund requests can be made for this order.',
         'not_eligible_window' => 'This request is outside the refund window, so no automatic refund applies.',
         'dispute_opened' => 'Your request is outside the automatic refund window. A dispute has been opened and an admin will review it.',
         'already_refunded' => 'This order has already been fully refunded.',

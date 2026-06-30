@@ -340,7 +340,7 @@ Payout + PayoutItem rows (status=pending). No payment-service call; no money mov
 - Chunk E: payout EXECUTION — `ProcessPayoutBatch` job, `PaymentClient::executePayout`, payout webhook receiver, mark
   `paid`, write `payout` ledger entries, notify vendor.
 
-## 2026-06-30 — Day 4 (slice 3 · Chunk C): refund EXECUTION client + webhook settlement (core-api)
+## 2026-06-29 — Day 4 (slice 3 · Chunk C): refund EXECUTION client + webhook settlement (core-api)
 **Maps to:** Day 4 — refunds (PLAN.md); core-api `CLAUDE.md` §F + §H; `docs/erd.md` (refunds, ledger_entries,
 payouts); ADR-09/10/13/14, ADR-20 (clawback), ADR-23. **Chunk C of slice 3 — closes the refund loop: core-api drives
 payment-service refund execution and settles the signed result. Builds on Chunk A (request/policy) + Chunk B
@@ -394,7 +394,7 @@ per-item handling is the `refund_items` follow-up.
   webhook (reusing this refund/charge client+webhook pattern).
 - `refund_items` persistence so partial refunds void exact tickets + split per vendor exactly.
 
-## 2026-06-30 — Day 4 (slice 3 · Chunk B): refund EXECUTION (payment-service)
+## 2026-06-29 — Day 4 (slice 3 · Chunk B): refund EXECUTION (payment-service)
 **Maps to:** Day 4 — refunds (PLAN.md); payment-service `CLAUDE.md` §A.4/§B/§D/§E/§G; `docs/system-architecture.md`
 §3.5; root comms/auth matrix; ADR-09 (idempotency), ADR-10 (shared-secret bearer + HMAC webhook), ADR-13 (append-only
 ledger). **Chunk B of slice 3 — mirrors the Chunk-B(charge) path exactly: idempotent create → async gateway resolve →
@@ -457,7 +457,7 @@ delivery/retry guarantee. (To promote into the decision log on review if accepte
   →`completed|failed`, write the reversal `ledger_entry` (−refund; −commission/clawback for cancellation, ADR-23), set
   order `refunded|partially_refunded`, mark tickets `refunded`; then payout calc/batch.
 
-## 2026-06-30 — Day 4 (slice 3 · Chunk A): refund REQUEST + POLICY (core-api)
+## 2026-06-29 — Day 4 (slice 3 · Chunk A): refund REQUEST + POLICY (core-api)
 **Maps to:** Day 4 — refunds/payouts (PLAN.md); core-api `CLAUDE.md` §F Refunds + §H; `docs/erd.md` (refunds,
 ledger_entries); ADR-08/09/11/13/14/20/23. **Chunk A of slice 3 — request + policy only; execution (payment-service
 call + reversal ledger) is Chunk B/C. No money moves and no ledger row is written in this chunk.**
@@ -586,7 +586,7 @@ runtime, so counts are confirmed on the local run)
   to consider when touching those paths: CRITICAL-1 (tighten `commission_rate` to NOT NULL) and HIGH-2
   (`ResolveTicketPrice` decimal-string parse).
 
-## 2026-06-29 — Day 3 (slice 2 · Chunk D): core-api payment webhook receiver — closes the purchase loop
+## 2026-06-28 — Day 3 (slice 2 · Chunk D): core-api payment webhook receiver — closes the purchase loop
 **Maps to:** Day 3 — core-api applies the payment-service charge result and issues tickets (PLAN.md); core-api
 `CLAUDE.md` §F.3–4 (order→payment→tickets) + §H (inter-service); root `CLAUDE.md` comms/auth matrix; ADR-07
 (holds/locking), ADR-09 (idempotency), ADR-10 (signed callback), ADR-13/14 (ledger/commission snapshot), ADR-17
@@ -648,7 +648,7 @@ runtime, so the commit is gated on this confirmed-green local run)
   failure) and a financial-logic-reviewer pass over the full loop; confirm idempotency end-to-end. Closes slice 2;
   slice 3 is refunds + payouts.
 
-## 2026-06-29 — Day 3 (slice 2 · Chunk C): core-api → payment-service charge client + queued InitiateCharge job
+## 2026-06-28 — Day 3 (slice 2 · Chunk C): core-api → payment-service charge client + queued InitiateCharge job
 **Maps to:** Day 3 — core-api initiates the charge for a pending order (PLAN.md); core-api `CLAUDE.md` §H
 (inter-service clients) + §F.3 (order→payment); root `CLAUDE.md` comms/auth matrix; ADR-09 (idempotency),
 ADR-17 (orders 1:N payments / retry cardinality). **Chunk C of the 5-chunk slice; A+B done, D+E upcoming.**
@@ -712,7 +712,7 @@ ADR-17 (orders 1:N payments / retry cardinality). **Chunk C of the 5-chunk slice
   tickets, increment `quantity_sold`, write the `ledger_entry`, enqueue order-confirmation; idempotent on replay.
 - **E:** end-to-end purchase-loop test + financial-logic-reviewer pass.
 
-## 2026-06-29 — Day 3 (slice 2 · Chunk B): payment-service charge endpoint + transactions ledger + signed webhook
+## 2026-06-28 — Day 3 (slice 2 · Chunk B): payment-service charge endpoint + transactions ledger + signed webhook
 **Maps to:** Day 3 — payment-service `POST /payments` + webhook callback (PLAN.md); payment-service `CLAUDE.md`
 §C/§E/§G/§F/§H; ADR-09 (idempotency), ADR-10 (shared-secret bearer + HMAC webhook), ADR-13 (append-only ledger).
 **Chunk B of the 5-chunk slice; A done, C–E upcoming.**
@@ -786,7 +786,7 @@ ADR-17 (orders 1:N payments / retry cardinality). **Chunk C of the 5-chunk slice
   tickets, increment `quantity_sold`, write `ledger_entry`, enqueue order-confirmation; idempotent on replay.
 - **E:** end-to-end purchase-loop test + financial-logic-reviewer pass.
 
-## 2026-06-29 — Day 3 (slice 2 · Chunk A): payment-service money foundation — gateways + idempotent charge
+## 2026-06-28 — Day 3 (slice 2 · Chunk A): payment-service money foundation — gateways + idempotent charge
 **Maps to:** Day 3 — payment-service (StripeSim/PayPalSim + idempotency) (PLAN.md); payment-service `CLAUDE.md`
 §B/§D/§F; ADR-07 (hybrid lock — referenced), ADR-09 (DB-backed idempotency). **Chunk A of a 5-chunk slice; B–E
 are upcoming (listed under Next).**
@@ -856,7 +856,7 @@ are upcoming (listed under Next).**
   increment `quantity_sold`, write `ledger_entry`, enqueue order-confirmation; idempotent on replay.
 - **E:** end-to-end purchase-loop test + financial-logic-reviewer pass.
 
-## 2026-06-29 — Day 3 (slice 1): Checkout — order + 15-min holds, distributed lock, idempotency (core-api)
+## 2026-06-28 — Day 3 (slice 1): Checkout — order + 15-min holds, distributed lock, idempotency (core-api)
 **Maps to:** Day 3 — checkout/holds/locking (PLAN.md, highest-value slice); CLAUDE.md §F Order processing;
 ADR-07 (hybrid lock), ADR-09 (idempotency), ADR-24 (new — checkout mechanics).
 
@@ -918,7 +918,7 @@ group-bundle pricing rule; cart-line normalization; lock-contention → retryabl
   client in a queued job, and the webhook that flips the order to `paid`, converts holds → issued QR tickets,
   increments `quantity_sold`, and writes the `ledger_entry`.
 
-## 2026-06-29 — Day 2: Vendor KYC review flow + capacity invariant closed (core-api)
+## 2026-06-27 — Day 2: Vendor KYC review flow + capacity invariant closed (core-api)
 **Maps to:** Day 2 — vendor onboarding & KYC (PLAN.md); CLAUDE.md §F Vendor onboarding & KYC, §J data protection.
 Also closes the flagged event-capacity gap from the CRUD session.
 
@@ -969,7 +969,7 @@ Also closes the flagged event-capacity gap from the CRUD session.
   signed webhooks), and the required money/inventory unit tests. Seeder to provision the demo admin + sample
   vendor/attendee/events. Signed-URL endpoint for KYC document retrieval.
 
-## 2026-06-29 — Day 2: Event + TicketType CRUD (core-api)
+## 2026-06-27 — Day 2: Event + TicketType CRUD (core-api)
 **Maps to:** Day 2 — `/crud Event`, `/crud TicketType` with ownership + lifecycle (PLAN.md); CLAUDE.md §A layering,
 §F Event lifecycle / Ticket types.
 
@@ -1026,7 +1026,7 @@ Also closes the flagged event-capacity gap from the CRUD session.
 - Vendor onboarding/KYC submission + admin review endpoints; then Day 3 (checkout holds + distributed lock,
   payment-service, webhooks). Seeder to provision the demo admin + sample vendor/attendee/events.
 
-## 2026-06-29 — Day 2: Token auth + role onboarding (core-api)
+## 2026-06-27 — Day 2: Token auth + role onboarding (core-api)
 **Maps to:** Day 2 — "Auth: Sanctum, `role` enum, `EnsureRole` middleware, registration/login" (PLAN.md);
 CLAUDE.md §F Roles & auth.
 
@@ -1075,7 +1075,7 @@ CLAUDE.md §F Roles & auth.
 - `/crud Event` + `/crud TicketType` (ownership + lifecycle), vendor onboarding/KYC submission + admin review
   endpoints, then their feature tests. Seeder to provision the demo admin + sample vendor/attendee logins.
 
-## 2026-06-29 — Day 2: Document PHP 8.4 runtime requirement (docs only)
+## 2026-06-27 — Day 2: Document PHP 8.4 runtime requirement (docs only)
 **Maps to:** Day 2 setup-instruction accuracy. No code/migrations touched.
 
 **What changed**
@@ -1093,7 +1093,7 @@ CLAUDE.md §F Roles & auth.
 - Docs-only; no tests/formatter. Confirmed `composer.lock` contains `symfony/*` entries requiring `php >= 8.4.1`
   and the two Dockerfiles already pin `php:8.4-cli`.
 
-## 2026-06-29 — Day 2: Docker verification (schema migrates on docker MySQL)
+## 2026-06-27 — Day 2: Docker verification (schema migrates on docker MySQL)
 **Maps to:** Day 2 — "docker-compose boots mysql + redis + both Laravel services; health checks pass" (PLAN.md).
 Proves the already-verified migrations apply on the **docker `mysql` host**, not just local Laragon.
 
@@ -1120,7 +1120,7 @@ Proves the already-verified migrations apply on the **docker `mysql` host**, not
 - Same as below (Day 2 continuation): repositories + Sanctum auth + `/crud Event`/`TicketType` + KYC endpoints +
   feature tests. When `payment-service` is scaffolded, bring it up too (Dockerfile already on php:8.4).
 
-## 2026-06-29 — Day 2: Domain schema + Eloquent models (core-api)
+## 2026-06-27 — Day 2: Domain schema + Eloquent models (core-api)
 **Maps to:** Day 2 — Scaffold + schema + core CRUD (PLAN.md) — the migrations/models slice.
 
 **What changed**
@@ -1178,7 +1178,7 @@ Proves the already-verified migrations apply on the **docker `mysql` host**, not
   `/crud TicketType` with ownership + lifecycle rules; vendor onboarding + KYC status endpoints. Then the
   required feature tests. Add model **factories** (referenced in `@use HasFactory` docblocks) when writing tests.
 
-## 2026-06-28 — Day 1: Plan & architect (planning docs filled)
+## 2026-06-26 — Day 1: Plan & architect (planning docs filled)
 **Maps to:** Day 1 — Plan & architect (PLAN.md). Also initialized the git repo (was uninitialized).
 
 **What changed**
@@ -1228,7 +1228,7 @@ Proves the already-verified migrations apply on the **docker `mysql` host**, not
   mysql+redis+both Laravel services; migrations from `docs/erd.md`; Sanctum auth + roles + `EnsureRole`; `/crud Event`
   and `/crud TicketType`.
 
-## 2026-06-27 — Day 0: AI command-center scaffold
+## 2026-06-26 — Day 0: AI command-center scaffold
 **Maps to:** pre–Day 1 setup (AI workflow artifacts + repo skeleton).
 
 **What changed**

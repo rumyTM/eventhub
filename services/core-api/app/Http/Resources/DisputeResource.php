@@ -33,9 +33,37 @@ class DisputeResource extends JsonResource
                     'value' => $this->order->status->value,
                     'label' => $this->order->status->label(),
                 ],
+                'attendee_name' => $this->order->relationLoaded('attendee')
+                    ? $this->order->attendee?->user?->name
+                    : null,
+                'events' => $this->order->relationLoaded('items') ? $this->eventSummaries() : [],
                 'created_at' => $this->order->created_at?->toIso8601String(),
             ]),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Distinct events across the order's items, in encounter order (mirrors OrderResource's helper —
+     * kept local since each Resource here is self-contained and this is the only other call site).
+     *
+     * @return list<array{id: string, title: string}>
+     */
+    private function eventSummaries(): array
+    {
+        $seen = [];
+        $events = [];
+
+        foreach ($this->order->items as $item) {
+            $event = $item->ticketType?->event;
+            if ($event === null || isset($seen[$event->id])) {
+                continue;
+            }
+
+            $seen[$event->id] = true;
+            $events[] = ['id' => $event->id, 'title' => $event->title];
+        }
+
+        return $events;
     }
 }

@@ -23,10 +23,22 @@ final class DisputeRepository implements DisputeRepositoryInterface
             ->first();
     }
 
+    public function hasRejectedForOrder(string $orderId): bool
+    {
+        return Dispute::query()
+            ->where('order_id', $orderId)
+            ->where('status', DisputeStatus::Rejected->value)
+            ->exists();
+    }
+
     public function listOpen(int $perPage = 15): LengthAwarePaginator
     {
         return Dispute::query()
-            ->with(['order'])
+            ->with([
+                'order.attendee.user',
+                'order.items.ticketType' => fn ($q) => $q->withTrashed(),
+                'order.items.ticketType.event' => fn ($q) => $q->withTrashed(),
+            ])
             ->where('status', DisputeStatus::Open->value)
             ->latest()
             ->paginate($perPage);

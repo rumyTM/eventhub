@@ -133,7 +133,7 @@ export default function CheckoutPage({ params }: { params: { orderId: string } }
       <CardContent className="space-y-3">
         {order.items?.map((item) => (
           <div key={item.id} className="flex justify-between text-sm">
-            <span>Ticket × {item.quantity}</span>
+            <span>{item.ticket_type?.kind.label ?? "Ticket"} × {item.quantity}</span>
             <span>{formatMoney(item.unit_price * item.quantity)}</span>
           </div>
         ))}

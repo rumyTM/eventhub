@@ -136,14 +136,26 @@ final class OrderRepository implements OrderRepositoryInterface
     {
         return Order::query()
             ->where('attendee_id', $attendeeId)
-            ->with('holds')
+            ->with([
+                'holds',
+                'items.ticketType' => fn ($q) => $q->withTrashed(),
+                'items.ticketType.event' => fn ($q) => $q->withTrashed(),
+                'latestOpenRefund',
+                'latestDispute',
+            ])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
     }
 
     public function paginateAll(int $perPage, ?string $status = null): LengthAwarePaginator
     {
-        $query = Order::query()->orderBy('created_at', 'desc');
+        $query = Order::query()
+            ->with([
+                'attendee.user',
+                'items.ticketType' => fn ($q) => $q->withTrashed(),
+                'items.ticketType.event' => fn ($q) => $q->withTrashed(),
+            ])
+            ->orderBy('created_at', 'desc');
 
         if ($status !== null) {
             $query->where('status', $status);

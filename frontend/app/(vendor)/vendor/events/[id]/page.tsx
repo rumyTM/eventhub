@@ -6,7 +6,8 @@ import { ErrorDisplay } from "@/components/error-display";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate, formatMoney } from "@/lib/utils";
+import { formatMoney } from "@/lib/utils";
+import { EventDateTime } from "@/components/event-date-time";
 import Link from "next/link";
 import { TicketTypesSection } from "./ticket-types-section";
 import { toast } from "sonner";
@@ -93,9 +94,9 @@ export default function VendorEventDetailPage({ params }: { params: { id: string
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Card><CardHeader><CardTitle className="text-xs text-muted-foreground">Starts</CardTitle></CardHeader>
-          <CardContent className="pt-0 text-sm">{formatDate(evt.starts_at)}</CardContent></Card>
+          <CardContent className="pt-0 text-sm"><EventDateTime iso={evt.starts_at} timezone={evt.timezone} /></CardContent></Card>
         <Card><CardHeader><CardTitle className="text-xs text-muted-foreground">Ends</CardTitle></CardHeader>
-          <CardContent className="pt-0 text-sm">{formatDate(evt.ends_at)}</CardContent></Card>
+          <CardContent className="pt-0 text-sm"><EventDateTime iso={evt.ends_at} timezone={evt.timezone} /></CardContent></Card>
         <Card><CardHeader><CardTitle className="text-xs text-muted-foreground">Tickets Sold</CardTitle></CardHeader>
           <CardContent className="pt-0 text-2xl font-bold">{totalSold}</CardContent></Card>
         <Card><CardHeader><CardTitle className="text-xs text-muted-foreground">Revenue</CardTitle></CardHeader>
@@ -105,6 +106,7 @@ export default function VendorEventDetailPage({ params }: { params: { id: string
       <TicketTypesSection
         eventId={evt.id}
         eventStartsAt={evt.starts_at}
+        eventTimezone={evt.timezone}
         ticketTypes={ticketTypes}
         loading={ttLoading}
         onRefresh={ttRefetch}
