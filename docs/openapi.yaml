@@ -4,22 +4,22 @@ info:
   description: 'REST API for the EventHub multi-vendor event ticketing and payout platform. Vendors create events and sell tickets; attendees browse and buy; admins approve vendors, manage refunds, and disburse payouts. Every financial operation is auditable, idempotent, and resilient to partial failure.'
   version: 1.0.0
 servers:
-  - url: 'http://localhost'
+  - url: 'http://localhost:8000'
 tags:
+  - name: Public
+    description: ''
   - name: Auth
-    description: "\nRegister, log in, and manage the current session."
-  - name: Events
-    description: "\nBrowse the event catalog and manage vendor events.\nPublic read endpoints require no authentication. Write endpoints require a `vendor` role token."
-  - name: 'Ticket Types'
-    description: "\nManage ticket types for an event. Public reads; vendor-role writes (own events only)."
-  - name: 'Orders / Checkout'
-    description: "\nAttendee ticket checkout. Creates a 15-minute inventory hold and initiates payment."
-  - name: Refunds
-    description: "\nRequest and manage order refunds. Amount is always **policy-derived** — attendees never specify\na sum. Time-based policy: >48 h before event start → 100%; 24–48 h → 50%; <24 h → 0%."
-  - name: 'Vendors / KYC'
-    description: "\nVendor onboarding and KYC (Know Your Customer) review. Vendors must be KYC-verified\nbefore they can publish events or receive payouts."
+    description: ''
+  - name: Vendor
+    description: ''
+  - name: Attendee
+    description: ''
+  - name: Admin
+    description: ''
+  - name: Orders
+    description: ''
   - name: Payouts
-    description: "\nAdmin payout management. Payouts are calculated per-vendor after their events complete.\nNet = gross_sales − (gross × commission_rate). A minimum threshold is enforced; below it the\npayout rolls to the next cycle. Execution is asynchronous — the terminal result arrives via\nthe payment-service webhook.\n\nGET  /admin/payouts               — paginated list (filterable by status/vendor).\nPOST /admin/payouts/build         — calculate pending settlements (decide-only; no money moves).\nPOST /admin/payouts/{payout}/execute — dispatch payment to the vendor."
+    description: ''
 components:
   securitySchemes:
     default:
@@ -99,7 +99,7 @@ paths:
                     example: null
                     nullable: true
       tags:
-        - Auth
+        - Public
       requestBody:
         required: true
         content:
@@ -240,7 +240,7 @@ paths:
                     example: null
                     nullable: true
       tags:
-        - Auth
+        - Public
       requestBody:
         required: true
         content:
@@ -251,25 +251,149 @@ paths:
                 email:
                   type: string
                   description: 'Must be a valid email address.'
-                  example: gbailey@example.net
+                  example: vendor@eventhub.test
                 password:
                   type: string
                   description: ''
-                  example: '|]|{+-'
+                  example: password
               required:
                 - email
                 - password
       security: []
-  /api/v1/auth/logout:
-    post:
-      summary: Logout
-      operationId: logout
-      description: 'Revoke the current Sanctum token. The token becomes immediately invalid.'
-      parameters: []
-      responses: {}
-      tags:
-        - Auth
   /api/v1/events:
+    get:
+      summary: 'List events'
+      operationId: listEvents
+      description: "Returns published events for unauthenticated callers. Vendors additionally see their own\ndraft/ongoing events; admins see all events regardless of status."
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Events retrieved.'
+                  data:
+                    events:
+                      -
+                        id: 01JWXYZ0000000000000EVENT1
+                        vendor_id: 01JWXYZ0000000000000VENDOR
+                        title: 'Summer Music Festival 2026'
+                        description: 'An evening of live music at the Dhaka Convention Centre.'
+                        timezone: Asia/Dhaka
+                        starts_at: '2026-09-20T12:00:00+00:00'
+                        ends_at: '2026-09-20T16:00:00+00:00'
+                        capacity: 500
+                        status:
+                          value: published
+                          label: Published
+                        ticket_types: []
+                        created_at: '2026-06-30T09:00:00+00:00'
+                        updated_at: '2026-06-30T09:00:00+00:00'
+                    pagination:
+                      current_page: 1
+                      per_page: 15
+                      total: 1
+                      last_page: 1
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Events retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      events:
+                        type: array
+                        example:
+                          -
+                            id: 01JWXYZ0000000000000EVENT1
+                            vendor_id: 01JWXYZ0000000000000VENDOR
+                            title: 'Summer Music Festival 2026'
+                            description: 'An evening of live music at the Dhaka Convention Centre.'
+                            timezone: Asia/Dhaka
+                            starts_at: '2026-09-20T12:00:00+00:00'
+                            ends_at: '2026-09-20T16:00:00+00:00'
+                            capacity: 500
+                            status:
+                              value: published
+                              label: Published
+                            ticket_types: []
+                            created_at: '2026-06-30T09:00:00+00:00'
+                            updated_at: '2026-06-30T09:00:00+00:00'
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: 01JWXYZ0000000000000EVENT1
+                            vendor_id:
+                              type: string
+                              example: 01JWXYZ0000000000000VENDOR
+                            title:
+                              type: string
+                              example: 'Summer Music Festival 2026'
+                            description:
+                              type: string
+                              example: 'An evening of live music at the Dhaka Convention Centre.'
+                            timezone:
+                              type: string
+                              example: Asia/Dhaka
+                            starts_at:
+                              type: string
+                              example: '2026-09-20T12:00:00+00:00'
+                            ends_at:
+                              type: string
+                              example: '2026-09-20T16:00:00+00:00'
+                            capacity:
+                              type: integer
+                              example: 500
+                            status:
+                              type: object
+                              properties:
+                                value:
+                                  type: string
+                                  example: published
+                                label:
+                                  type: string
+                                  example: Published
+                            ticket_types:
+                              type: array
+                              example: []
+                            created_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                            updated_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                      pagination:
+                        type: object
+                        properties:
+                          current_page:
+                            type: integer
+                            example: 1
+                          per_page:
+                            type: integer
+                            example: 15
+                          total:
+                            type: integer
+                            example: 1
+                          last_page:
+                            type: integer
+                            example: 1
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Public
+      security: []
     post:
       summary: 'Create event'
       operationId: createEvent
@@ -277,7 +401,7 @@ paths:
       parameters: []
       responses: {}
       tags:
-        - Events
+        - Vendor
       requestBody:
         required: true
         content:
@@ -288,16 +412,16 @@ paths:
                 title:
                   type: string
                   description: 'Must not be greater than 255 characters.'
-                  example: b
+                  example: 'Summer Music Festival 2026'
                 description:
                   type: string
                   description: 'Must not be greater than 5000 characters.'
-                  example: 'Et animi quos velit et fugiat.'
+                  example: 'An evening of live music at the Dhaka Convention Centre.'
                   nullable: true
                 timezone:
                   type: string
                   description: ''
-                  example: Antarctica/McMurdo
+                  example: Asia/Dhaka
                   enum:
                     - Africa/Abidjan
                     - Africa/Accra
@@ -721,15 +845,15 @@ paths:
                 starts_at:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-06-30T07:48:08'
+                  example: '2026-09-20T18:00:00+06:00'
                 ends_at:
                   type: string
                   description: 'Must be a valid date. Must be a date after <code>starts_at</code>.'
-                  example: '2052-07-23'
+                  example: '2026-09-20T22:00:00+06:00'
                 capacity:
                   type: integer
                   description: 'Must be at least 1.'
-                  example: 22
+                  example: 500
               required:
                 - title
                 - timezone
@@ -737,6 +861,208 @@ paths:
                 - ends_at
                 - capacity
   '/api/v1/events/{id}':
+    get:
+      summary: 'Get event'
+      operationId: getEvent
+      description: "Retrieve a single event with its ticket types. Published events are public;\ndraft/cancelled events are visible only to their owner vendor or an admin."
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Event retrieved.'
+                  data:
+                    event:
+                      id: 01JWXYZ0000000000000EVENT1
+                      vendor_id: 01JWXYZ0000000000000VENDOR
+                      title: 'Summer Music Festival 2026'
+                      description: 'An evening of live music at the Dhaka Convention Centre.'
+                      timezone: Asia/Dhaka
+                      starts_at: '2026-09-20T12:00:00+00:00'
+                      ends_at: '2026-09-20T16:00:00+00:00'
+                      capacity: 500
+                      status:
+                        value: published
+                        label: Published
+                      ticket_types:
+                        -
+                          id: 01JWXYZ000000000000TICKET1
+                          event_id: 01JWXYZ0000000000000EVENT1
+                          kind:
+                            value: general
+                            label: General
+                          price: 50000
+                          currency: BDT
+                          quantity_total: 200
+                          quantity_sold: 12
+                          group_size: null
+                          group_discount: null
+                          sales_start: '2026-08-01T00:00:00+06:00'
+                          sales_end: '2026-09-19T23:59:59+06:00'
+                          created_at: '2026-06-30T09:00:00+00:00'
+                          updated_at: '2026-06-30T09:00:00+00:00'
+                      created_at: '2026-06-30T09:00:00+00:00'
+                      updated_at: '2026-06-30T09:00:00+00:00'
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Event retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      event:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: 01JWXYZ0000000000000EVENT1
+                          vendor_id:
+                            type: string
+                            example: 01JWXYZ0000000000000VENDOR
+                          title:
+                            type: string
+                            example: 'Summer Music Festival 2026'
+                          description:
+                            type: string
+                            example: 'An evening of live music at the Dhaka Convention Centre.'
+                          timezone:
+                            type: string
+                            example: Asia/Dhaka
+                          starts_at:
+                            type: string
+                            example: '2026-09-20T12:00:00+00:00'
+                          ends_at:
+                            type: string
+                            example: '2026-09-20T16:00:00+00:00'
+                          capacity:
+                            type: integer
+                            example: 500
+                          status:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                                example: published
+                              label:
+                                type: string
+                                example: Published
+                          ticket_types:
+                            type: array
+                            example:
+                              -
+                                id: 01JWXYZ000000000000TICKET1
+                                event_id: 01JWXYZ0000000000000EVENT1
+                                kind:
+                                  value: general
+                                  label: General
+                                price: 50000
+                                currency: BDT
+                                quantity_total: 200
+                                quantity_sold: 12
+                                group_size: null
+                                group_discount: null
+                                sales_start: '2026-08-01T00:00:00+06:00'
+                                sales_end: '2026-09-19T23:59:59+06:00'
+                                created_at: '2026-06-30T09:00:00+00:00'
+                                updated_at: '2026-06-30T09:00:00+00:00'
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                  example: 01JWXYZ000000000000TICKET1
+                                event_id:
+                                  type: string
+                                  example: 01JWXYZ0000000000000EVENT1
+                                kind:
+                                  type: object
+                                  properties:
+                                    value:
+                                      type: string
+                                      example: general
+                                    label:
+                                      type: string
+                                      example: General
+                                price:
+                                  type: integer
+                                  example: 50000
+                                currency:
+                                  type: string
+                                  example: BDT
+                                quantity_total:
+                                  type: integer
+                                  example: 200
+                                quantity_sold:
+                                  type: integer
+                                  example: 12
+                                group_size:
+                                  type: string
+                                  example: null
+                                  nullable: true
+                                group_discount:
+                                  type: string
+                                  example: null
+                                  nullable: true
+                                sales_start:
+                                  type: string
+                                  example: '2026-08-01T00:00:00+06:00'
+                                sales_end:
+                                  type: string
+                                  example: '2026-09-19T23:59:59+06:00'
+                                created_at:
+                                  type: string
+                                  example: '2026-06-30T09:00:00+00:00'
+                                updated_at:
+                                  type: string
+                                  example: '2026-06-30T09:00:00+00:00'
+                          created_at:
+                            type: string
+                            example: '2026-06-30T09:00:00+00:00'
+                          updated_at:
+                            type: string
+                            example: '2026-06-30T09:00:00+00:00'
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+        403:
+          description: 'Draft event (not owner)'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: false
+                  message: 'This action is unauthorized.'
+                  data: null
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: 'This action is unauthorized.'
+                  data:
+                    type: string
+                    example: null
+                    nullable: true
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Public
+      security: []
     put:
       summary: 'Update event'
       operationId: updateEvent
@@ -744,7 +1070,7 @@ paths:
       parameters: []
       responses: {}
       tags:
-        - Events
+        - Vendor
       requestBody:
         required: false
         content:
@@ -755,16 +1081,16 @@ paths:
                 title:
                   type: string
                   description: 'Must not be greater than 255 characters.'
-                  example: b
+                  example: 'Summer Music Festival 2026 (Updated)'
                 description:
                   type: string
                   description: 'Must not be greater than 5000 characters.'
-                  example: 'Et animi quos velit et fugiat.'
+                  example: 'Doors open at 17:30. Standing and seated areas available.'
                   nullable: true
                 timezone:
                   type: string
                   description: ''
-                  example: America/Coyhaique
+                  example: Asia/Dhaka
                   enum:
                     - Africa/Abidjan
                     - Africa/Accra
@@ -1188,15 +1514,15 @@ paths:
                 starts_at:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-06-30T07:48:08'
+                  example: '2026-09-20T18:00:00+06:00'
                 ends_at:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-06-30T07:48:08'
+                  example: '2026-09-20T23:00:00+06:00'
                 capacity:
                   type: integer
                   description: 'Must be at least 1.'
-                  example: 26
+                  example: 600
                 status:
                   type: string
                   description: ''
@@ -1214,7 +1540,7 @@ paths:
       parameters: []
       responses: {}
       tags:
-        - Events
+        - Vendor
     parameters:
       -
         in: path
@@ -1225,6 +1551,146 @@ paths:
         schema:
           type: string
   '/api/v1/events/{event_id}/ticket-types':
+    get:
+      summary: 'List ticket types'
+      operationId: listTicketTypes
+      description: "Returns all active ticket types for the given event, with pricing and availability.\nRequires the same visibility as the parent event (published events are public)."
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Ticket types retrieved.'
+                  data:
+                    ticket_types:
+                      -
+                        id: 01JWXYZ000000000000TICKET1
+                        event_id: 01JWXYZ0000000000000EVENT1
+                        kind:
+                          value: general
+                          label: General
+                        price: 50000
+                        currency: BDT
+                        quantity_total: 200
+                        quantity_sold: 12
+                        group_size: null
+                        group_discount: null
+                        sales_start: '2026-08-01T00:00:00+06:00'
+                        sales_end: '2026-09-19T23:59:59+06:00'
+                        created_at: '2026-06-30T09:00:00+00:00'
+                        updated_at: '2026-06-30T09:00:00+00:00'
+                    pagination:
+                      current_page: 1
+                      per_page: 25
+                      total: 1
+                      last_page: 1
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Ticket types retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      ticket_types:
+                        type: array
+                        example:
+                          -
+                            id: 01JWXYZ000000000000TICKET1
+                            event_id: 01JWXYZ0000000000000EVENT1
+                            kind:
+                              value: general
+                              label: General
+                            price: 50000
+                            currency: BDT
+                            quantity_total: 200
+                            quantity_sold: 12
+                            group_size: null
+                            group_discount: null
+                            sales_start: '2026-08-01T00:00:00+06:00'
+                            sales_end: '2026-09-19T23:59:59+06:00'
+                            created_at: '2026-06-30T09:00:00+00:00'
+                            updated_at: '2026-06-30T09:00:00+00:00'
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: 01JWXYZ000000000000TICKET1
+                            event_id:
+                              type: string
+                              example: 01JWXYZ0000000000000EVENT1
+                            kind:
+                              type: object
+                              properties:
+                                value:
+                                  type: string
+                                  example: general
+                                label:
+                                  type: string
+                                  example: General
+                            price:
+                              type: integer
+                              example: 50000
+                            currency:
+                              type: string
+                              example: BDT
+                            quantity_total:
+                              type: integer
+                              example: 200
+                            quantity_sold:
+                              type: integer
+                              example: 12
+                            group_size:
+                              type: string
+                              example: null
+                              nullable: true
+                            group_discount:
+                              type: string
+                              example: null
+                              nullable: true
+                            sales_start:
+                              type: string
+                              example: '2026-08-01T00:00:00+06:00'
+                            sales_end:
+                              type: string
+                              example: '2026-09-19T23:59:59+06:00'
+                            created_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                            updated_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                      pagination:
+                        type: object
+                        properties:
+                          current_page:
+                            type: integer
+                            example: 1
+                          per_page:
+                            type: integer
+                            example: 25
+                          total:
+                            type: integer
+                            example: 1
+                          last_page:
+                            type: integer
+                            example: 1
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Public
+      security: []
     post:
       summary: 'Create ticket type'
       operationId: createTicketType
@@ -1232,7 +1698,7 @@ paths:
       parameters: []
       responses: {}
       tags:
-        - 'Ticket Types'
+        - Vendor
       requestBody:
         required: true
         content:
@@ -1243,7 +1709,7 @@ paths:
                 kind:
                   type: string
                   description: ''
-                  example: early_bird
+                  example: general
                   enum:
                     - early_bird
                     - vip
@@ -1251,34 +1717,34 @@ paths:
                 price:
                   type: integer
                   description: 'Must be at least 0.'
-                  example: 27
+                  example: 50000
                 currency:
                   type: string
                   description: 'Must be 3 characters.'
-                  example: ngz
+                  example: BDT
                 quantity_total:
                   type: integer
                   description: 'Must be at least 1.'
-                  example: 27
+                  example: 200
                 group_size:
                   type: integer
                   description: 'Must be at least 2.'
-                  example: 18
+                  example: null
                   nullable: true
                 group_discount:
                   type: number
                   description: 'This field is required when <code>group_size</code> is present. Must be at least 0.'
-                  example: 76
+                  example: null
                   nullable: true
                 sales_start:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-06-30T07:48:08'
+                  example: '2026-08-01T00:00:00+06:00'
                   nullable: true
                 sales_end:
                   type: string
                   description: 'Must be a valid date. Must be a date after <code>sales_start</code>.'
-                  example: '2052-07-23'
+                  example: '2026-09-19T23:59:59+06:00'
                   nullable: true
               required:
                 - kind
@@ -1295,6 +1761,106 @@ paths:
         schema:
           type: string
   '/api/v1/events/{event_id}/ticket-types/{ticketType_id}':
+    get:
+      summary: 'Get ticket type'
+      operationId: getTicketType
+      description: 'Retrieve a single ticket type including group-bundle rules if applicable.'
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Ticket type retrieved.'
+                  data:
+                    ticket_type:
+                      id: 01JWXYZ000000000000TICKET1
+                      event_id: 01JWXYZ0000000000000EVENT1
+                      kind:
+                        value: general
+                        label: General
+                      price: 50000
+                      currency: BDT
+                      quantity_total: 200
+                      quantity_sold: 12
+                      group_size: null
+                      group_discount: null
+                      sales_start: '2026-08-01T00:00:00+06:00'
+                      sales_end: '2026-09-19T23:59:59+06:00'
+                      created_at: '2026-06-30T09:00:00+00:00'
+                      updated_at: '2026-06-30T09:00:00+00:00'
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Ticket type retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      ticket_type:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: 01JWXYZ000000000000TICKET1
+                          event_id:
+                            type: string
+                            example: 01JWXYZ0000000000000EVENT1
+                          kind:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                                example: general
+                              label:
+                                type: string
+                                example: General
+                          price:
+                            type: integer
+                            example: 50000
+                          currency:
+                            type: string
+                            example: BDT
+                          quantity_total:
+                            type: integer
+                            example: 200
+                          quantity_sold:
+                            type: integer
+                            example: 12
+                          group_size:
+                            type: string
+                            example: null
+                            nullable: true
+                          group_discount:
+                            type: string
+                            example: null
+                            nullable: true
+                          sales_start:
+                            type: string
+                            example: '2026-08-01T00:00:00+06:00'
+                          sales_end:
+                            type: string
+                            example: '2026-09-19T23:59:59+06:00'
+                          created_at:
+                            type: string
+                            example: '2026-06-30T09:00:00+00:00'
+                          updated_at:
+                            type: string
+                            example: '2026-06-30T09:00:00+00:00'
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Public
+      security: []
     put:
       summary: 'Update ticket type'
       operationId: updateTicketType
@@ -1302,7 +1868,7 @@ paths:
       parameters: []
       responses: {}
       tags:
-        - 'Ticket Types'
+        - Vendor
       requestBody:
         required: false
         content:
@@ -1321,34 +1887,34 @@ paths:
                 price:
                   type: integer
                   description: 'Must be at least 0.'
-                  example: 27
+                  example: 150000
                 currency:
                   type: string
                   description: 'Must be 3 characters.'
-                  example: ngz
+                  example: BDT
                 quantity_total:
                   type: integer
                   description: 'Must be at least 1.'
-                  example: 27
+                  example: 50
                 group_size:
                   type: integer
                   description: 'Must be at least 2.'
-                  example: 18
+                  example: null
                   nullable: true
                 group_discount:
                   type: number
                   description: 'Must be at least 0.'
-                  example: 76
+                  example: null
                   nullable: true
                 sales_start:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-06-30T07:48:08'
+                  example: '2026-08-01T00:00:00+06:00'
                   nullable: true
                 sales_end:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-06-30T07:48:08'
+                  example: '2026-09-19T23:59:59+06:00'
                   nullable: true
     delete:
       summary: 'Delete ticket type'
@@ -1357,7 +1923,7 @@ paths:
       parameters: []
       responses: {}
       tags:
-        - 'Ticket Types'
+        - Vendor
     parameters:
       -
         in: path
@@ -1375,6 +1941,165 @@ paths:
         required: true
         schema:
           type: string
+  /api/v1/health:
+    get:
+      summary: 'Health check'
+      operationId: healthCheck
+      description: 'Returns the service name and a liveness status. No authentication required. Safe to poll.'
+      parameters: []
+      responses:
+        200:
+          description: 'Service is up.'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'core-api is healthy.'
+                  data:
+                    service: core-api
+                    status: ok
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'core-api is healthy.'
+                  data:
+                    type: object
+                    properties:
+                      service:
+                        type: string
+                        example: core-api
+                      status:
+                        type: string
+                        example: ok
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Public
+      security: []
+  /api/v1/auth/logout:
+    post:
+      summary: Logout
+      operationId: logout
+      description: 'Revoke the current Sanctum token. The token becomes immediately invalid.'
+      parameters: []
+      responses: {}
+      tags:
+        - Auth
+  /api/v1/auth/me:
+    get:
+      summary: 'Current user'
+      operationId: currentUser
+      description: 'Return the authenticated user along with their vendor or attendee profile.'
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Authenticated user retrieved.'
+                  data:
+                    user:
+                      id: 01JWXYZ0000000000000VENDOR
+                      name: 'Acme Events Ltd'
+                      email: vendor@eventhub.test
+                      role:
+                        value: vendor
+                        label: Vendor
+                      created_at: '2026-06-30T10:00:00+00:00'
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Authenticated user retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: 01JWXYZ0000000000000VENDOR
+                          name:
+                            type: string
+                            example: 'Acme Events Ltd'
+                          email:
+                            type: string
+                            example: vendor@eventhub.test
+                          role:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                                example: vendor
+                              label:
+                                type: string
+                                example: Vendor
+                          created_at:
+                            type: string
+                            example: '2026-06-30T10:00:00+00:00'
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Auth
+  /api/v1/vendor/kyc:
+    post:
+      summary: 'Submit KYC (vendor)'
+      operationId: submitKYCvendor
+      description: "Submit or re-submit the authenticated vendor's KYC documents for admin review.\nKYC status transitions: `pending → verified` (admin approves) or `pending → rejected`.\nOnly `pending` and `rejected` vendors may re-submit."
+      parameters: []
+      responses: {}
+      tags:
+        - Vendor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                documents:
+                  type: array
+                  description: 'Must have at least 1 items.'
+                  example:
+                    - []
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        description: ''
+                        example: trade_license
+                        enum:
+                          - trade_license
+                          - nid
+                          - bank_statement
+                      storage_path:
+                        type: string
+                        description: 'Must not be greater than 1024 characters.'
+                        example: kyc/vendors/01JWXYZ0000VENDOR/trade_license.pdf
+                    required:
+                      - type
+                      - storage_path
+              required:
+                - documents
   /api/v1/orders:
     post:
       summary: Checkout
@@ -1529,7 +2254,7 @@ paths:
                         items:
                           type: string
       tags:
-        - 'Orders / Checkout'
+        - Attendee
       requestBody:
         required: true
         content:
@@ -1540,7 +2265,7 @@ paths:
                 idempotency_key:
                   type: string
                   description: 'Must not be greater than 255 characters.'
-                  example: b
+                  example: No-example
                 items:
                   type: array
                   description: 'Must have at least 1 items. Must not have more than 50 items.'
@@ -1552,17 +2277,262 @@ paths:
                       ticket_type_id:
                         type: string
                         description: 'Must match an existing stored value.'
-                        example: architecto
+                        example: 01JWXYZ0000000000000TICKET1
                       quantity:
                         type: integer
                         description: 'Must be at least 1. Must not be greater than 100.'
-                        example: 22
+                        example: 2
                     required:
                       - ticket_type_id
                       - quantity
               required:
                 - idempotency_key
                 - items
+    get:
+      summary: 'List orders'
+      operationId: listOrders
+      description: "Returns a paginated list of orders. Attendees see only their own orders;\nadmins see all orders and can filter by status (e.g. for the dispute queue)."
+      parameters:
+        -
+          in: query
+          name: status
+          description: 'Filter orders by status. Attendees always see only their own orders; admins may use this to narrow the result set.'
+          example: paid
+          required: false
+          schema:
+            type: string
+            description: 'Filter orders by status. Attendees always see only their own orders; admins may use this to narrow the result set.'
+            example: paid
+            enum:
+              - pending
+              - paid
+              - partially_refunded
+              - refunded
+              - expired
+              - failed
+              - cancelled
+        -
+          in: query
+          name: per_page
+          description: 'Number of items per page (1–100). Must be at least 1. Must not be greater than 100.'
+          example: 15
+          required: false
+          schema:
+            type: integer
+            description: 'Number of items per page (1–100). Must be at least 1. Must not be greater than 100.'
+            example: 15
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Orders retrieved.'
+                  data:
+                    orders:
+                      -
+                        id: 01J000000000000DEMOORDER1
+                        status:
+                          value: paid
+                          label: Paid
+                        total: 75000
+                        currency: BDT
+                        commission_rate: '0.1000'
+                        created_at: '2026-06-30T10:05:00Z'
+                    pagination:
+                      current_page: 1
+                      per_page: 15
+                      total: 1
+                      last_page: 1
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Orders retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      orders:
+                        type: array
+                        example:
+                          -
+                            id: 01J000000000000DEMOORDER1
+                            status:
+                              value: paid
+                              label: Paid
+                            total: 75000
+                            currency: BDT
+                            commission_rate: '0.1000'
+                            created_at: '2026-06-30T10:05:00Z'
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: 01J000000000000DEMOORDER1
+                            status:
+                              type: object
+                              properties:
+                                value:
+                                  type: string
+                                  example: paid
+                                label:
+                                  type: string
+                                  example: Paid
+                            total:
+                              type: integer
+                              example: 75000
+                            currency:
+                              type: string
+                              example: BDT
+                            commission_rate:
+                              type: string
+                              example: '0.1000'
+                            created_at:
+                              type: string
+                              example: '2026-06-30T10:05:00Z'
+                      pagination:
+                        type: object
+                        properties:
+                          current_page:
+                            type: integer
+                            example: 1
+                          per_page:
+                            type: integer
+                            example: 15
+                          total:
+                            type: integer
+                            example: 1
+                          last_page:
+                            type: integer
+                            example: 1
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: false
+                  message: Unauthenticated.
+                  data: null
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: Unauthenticated.
+                  data:
+                    type: string
+                    example: null
+                    nullable: true
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Orders
+  '/api/v1/orders/{order_id}/pay':
+    post:
+      summary: 'Pay order'
+      operationId: payOrder
+      description: "Explicitly initiates payment for a pending order. Call this after displaying the payment\nform to the attendee — the charge job is dispatched only when the attendee submits."
+      parameters: []
+      responses:
+        200:
+          description: 'Payment initiated'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Payment initiated. Your order will be confirmed shortly.'
+                  data:
+                    order:
+                      id: 01J000000000000DEMOORDER1
+                      status:
+                        value: pending
+                        label: Pending
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Payment initiated. Your order will be confirmed shortly.'
+                  data:
+                    type: object
+                    properties:
+                      order:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: 01J000000000000DEMOORDER1
+                          status:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                                example: pending
+                              label:
+                                type: string
+                                example: Pending
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+        422:
+          description: 'Order not payable'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: false
+                  message: 'This order is not in a payable state.'
+                  data: null
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: 'This order is not in a payable state.'
+                  data:
+                    type: string
+                    example: null
+                    nullable: true
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Attendee
+    parameters:
+      -
+        in: path
+        name: order_id
+        description: 'The ID of the order.'
+        example: architecto
+        required: true
+        schema:
+          type: string
   '/api/v1/orders/{order_id}/refund':
     post:
       summary: 'Request refund (attendee)'
@@ -1681,7 +2651,7 @@ paths:
                         items:
                           type: string
       tags:
-        - Refunds
+        - Attendee
       requestBody:
         required: false
         content:
@@ -1699,16 +2669,203 @@ paths:
                       order_item_id:
                         type: string
                         description: 'This field is required when <code>items</code> is present. Must match an existing stored value.'
-                        example: architecto
+                        example: 01JWXYZ000000000000OITEM1
                       quantity:
                         type: integer
                         description: 'This field is required when <code>items</code> is present. Must be at least 1. Must not be greater than 100.'
-                        example: 22
+                        example: 1
     parameters:
       -
         in: path
         name: order_id
         description: 'The ID of the order.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  /api/v1/admin/vendors:
+    get:
+      summary: 'List pending vendors (admin)'
+      operationId: listPendingVendorsadmin
+      description: 'Paginated list of vendors with `kyc_status=pending`, awaiting an admin decision.'
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Vendors pending KYC review retrieved.'
+                  data:
+                    vendors:
+                      -
+                        id: 01JWXYZ0000000000000VENDOR
+                        business_name: 'Acme Events Ltd'
+                        legal_name: null
+                        trade_license_no: null
+                        contact_phone: '+8801711000000'
+                        address: null
+                        kyc_status:
+                          value: pending
+                          label: Pending
+                        submitted_at: '2026-06-30T09:00:00+00:00'
+                        reviewed_at: null
+                        rejection_reason: null
+                        kyc_documents: []
+                        created_at: '2026-06-30T09:00:00+00:00'
+                    pagination:
+                      current_page: 1
+                      per_page: 25
+                      total: 1
+                      last_page: 1
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Vendors pending KYC review retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      vendors:
+                        type: array
+                        example:
+                          -
+                            id: 01JWXYZ0000000000000VENDOR
+                            business_name: 'Acme Events Ltd'
+                            legal_name: null
+                            trade_license_no: null
+                            contact_phone: '+8801711000000'
+                            address: null
+                            kyc_status:
+                              value: pending
+                              label: Pending
+                            submitted_at: '2026-06-30T09:00:00+00:00'
+                            reviewed_at: null
+                            rejection_reason: null
+                            kyc_documents: []
+                            created_at: '2026-06-30T09:00:00+00:00'
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: 01JWXYZ0000000000000VENDOR
+                            business_name:
+                              type: string
+                              example: 'Acme Events Ltd'
+                            legal_name:
+                              type: string
+                              example: null
+                              nullable: true
+                            trade_license_no:
+                              type: string
+                              example: null
+                              nullable: true
+                            contact_phone:
+                              type: string
+                              example: '+8801711000000'
+                            address:
+                              type: string
+                              example: null
+                              nullable: true
+                            kyc_status:
+                              type: object
+                              properties:
+                                value:
+                                  type: string
+                                  example: pending
+                                label:
+                                  type: string
+                                  example: Pending
+                            submitted_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                            reviewed_at:
+                              type: string
+                              example: null
+                              nullable: true
+                            rejection_reason:
+                              type: string
+                              example: null
+                              nullable: true
+                            kyc_documents:
+                              type: array
+                              example: []
+                            created_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                      pagination:
+                        type: object
+                        properties:
+                          current_page:
+                            type: integer
+                            example: 1
+                          per_page:
+                            type: integer
+                            example: 25
+                          total:
+                            type: integer
+                            example: 1
+                          last_page:
+                            type: integer
+                            example: 1
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Admin
+  '/api/v1/admin/vendors/{vendor_id}/verify':
+    post:
+      summary: 'Verify vendor (admin)'
+      operationId: verifyVendoradmin
+      description: "Approve a vendor's KYC submission (`pending → verified`). Verified vendors can publish\nevents and receive payouts."
+      parameters: []
+      responses: {}
+      tags:
+        - Admin
+    parameters:
+      -
+        in: path
+        name: vendor_id
+        description: 'The ID of the vendor.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  '/api/v1/admin/vendors/{vendor_id}/reject':
+    post:
+      summary: 'Reject vendor (admin)'
+      operationId: rejectVendoradmin
+      description: "Reject a vendor's KYC submission (`pending → rejected`) with a mandatory reason.\nThe vendor may re-submit after addressing the stated issues."
+      parameters: []
+      responses: {}
+      tags:
+        - Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rejection_reason:
+                  type: string
+                  description: 'Must not be greater than 1000 characters.'
+                  example: 'Submitted documents are blurry or incomplete. Please re-upload a clearer copy of your trade license.'
+              required:
+                - rejection_reason
+    parameters:
+      -
+        in: path
+        name: vendor_id
+        description: 'The ID of the vendor.'
         example: architecto
         required: true
         schema:
@@ -1798,7 +2955,7 @@ paths:
                     example: null
                     nullable: true
       tags:
-        - Refunds
+        - Admin
       requestBody:
         required: false
         content:
@@ -1813,6 +2970,7 @@ paths:
                   enum:
                     - attendee_requested
                     - event_cancelled
+                    - late_payment
                 items:
                   type: array
                   description: 'Must have at least 1 items. Must not have more than 50 items.'
@@ -1823,11 +2981,11 @@ paths:
                       order_item_id:
                         type: string
                         description: 'This field is required when <code>items</code> is present. Must match an existing stored value.'
-                        example: architecto
+                        example: 01JWXYZ000000000000OITEM1
                       quantity:
                         type: integer
                         description: 'This field is required when <code>items</code> is present. Must be at least 1. Must not be greater than 100.'
-                        example: 22
+                        example: 1
     parameters:
       -
         in: path
@@ -1837,74 +2995,257 @@ paths:
         required: true
         schema:
           type: string
-  /api/v1/vendor/kyc:
-    post:
-      summary: 'Submit KYC (vendor)'
-      operationId: submitKYCvendor
-      description: "Submit or re-submit the authenticated vendor's KYC documents for admin review.\nKYC status transitions: `pending → verified` (admin approves) or `pending → rejected`.\nOnly `pending` and `rejected` vendors may re-submit."
+  /api/v1/admin/disputes:
+    get:
+      summary: 'List open disputes'
+      operationId: listOpenDisputes
+      description: 'Returns a paginated list of open disputes awaiting admin review.'
       parameters: []
-      responses: {}
-      tags:
-        - 'Vendors / KYC'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                documents:
-                  type: array
-                  description: 'Must have at least 1 items.'
-                  example:
-                    - []
-                  items:
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Disputes retrieved.'
+                  data:
+                    disputes:
+                      -
+                        id: 01J000000000000DEMODISPUTE
+                        order_id: 01J000000000000DEMOORDER1
+                        status:
+                          value: open
+                          label: Open
+                        reason: attendee_requested
+                        created_at: '2026-06-30T20:00:00Z'
+                    pagination:
+                      current_page: 1
+                      per_page: 15
+                      total: 1
+                      last_page: 1
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Disputes retrieved.'
+                  data:
                     type: object
                     properties:
-                      type:
-                        type: string
-                        description: ''
-                        example: trade_license
-                        enum:
-                          - trade_license
-                          - nid
-                          - bank_statement
-                      storage_path:
-                        type: string
-                        description: 'Must not be greater than 1024 characters.'
-                        example: b
-                    required:
-                      - type
-                      - storage_path
-              required:
-                - documents
-  '/api/v1/admin/vendors/{vendor_id}/verify':
-    post:
-      summary: 'Verify vendor (admin)'
-      operationId: verifyVendoradmin
-      description: "Approve a vendor's KYC submission (`pending → verified`). Verified vendors can publish\nevents and receive payouts."
-      parameters: []
-      responses: {}
+                      disputes:
+                        type: array
+                        example:
+                          -
+                            id: 01J000000000000DEMODISPUTE
+                            order_id: 01J000000000000DEMOORDER1
+                            status:
+                              value: open
+                              label: Open
+                            reason: attendee_requested
+                            created_at: '2026-06-30T20:00:00Z'
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: 01J000000000000DEMODISPUTE
+                            order_id:
+                              type: string
+                              example: 01J000000000000DEMOORDER1
+                            status:
+                              type: object
+                              properties:
+                                value:
+                                  type: string
+                                  example: open
+                                label:
+                                  type: string
+                                  example: Open
+                            reason:
+                              type: string
+                              example: attendee_requested
+                            created_at:
+                              type: string
+                              example: '2026-06-30T20:00:00Z'
+                      pagination:
+                        type: object
+                        properties:
+                          current_page:
+                            type: integer
+                            example: 1
+                          per_page:
+                            type: integer
+                            example: 15
+                          total:
+                            type: integer
+                            example: 1
+                          last_page:
+                            type: integer
+                            example: 1
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
       tags:
-        - 'Vendors / KYC'
+        - Admin
+  '/api/v1/admin/disputes/{dispute_id}/resolve':
+    post:
+      summary: 'Resolve dispute (approve refund)'
+      operationId: resolveDisputeapproveRefund
+      description: "Approve the dispute: creates a full-remaining-balance refund override (ignoring the\ntime-based policy) and marks the dispute resolved. Idempotent on an already-resolved dispute."
+      parameters: []
+      responses:
+        200:
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Dispute resolved. Refund has been queued.'
+                  data:
+                    dispute:
+                      id: 01J000000000000DEMODISPUTE
+                      order_id: 01J000000000000DEMOORDER1
+                      status:
+                        value: resolved
+                        label: Resolved
+                      reason: attendee_requested
+                      created_at: '2026-06-30T20:00:00Z'
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Dispute resolved. Refund has been queued.'
+                  data:
+                    type: object
+                    properties:
+                      dispute:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: 01J000000000000DEMODISPUTE
+                          order_id:
+                            type: string
+                            example: 01J000000000000DEMOORDER1
+                          status:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                                example: resolved
+                              label:
+                                type: string
+                                example: Resolved
+                          reason:
+                            type: string
+                            example: attendee_requested
+                          created_at:
+                            type: string
+                            example: '2026-06-30T20:00:00Z'
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolution:
+                  type: string
+                  description: 'Admin note explaining the resolution outcome (optional). Must not be greater than 1000 characters.'
+                  example: 'Reviewed CCTV footage — attendee did not enter. Approved full refund.'
+                  nullable: true
     parameters:
       -
         in: path
-        name: vendor_id
-        description: 'The ID of the vendor.'
+        name: dispute_id
+        description: 'The ID of the dispute.'
         example: architecto
         required: true
         schema:
           type: string
-  '/api/v1/admin/vendors/{vendor_id}/reject':
+  '/api/v1/admin/disputes/{dispute_id}/reject':
     post:
-      summary: 'Reject vendor (admin)'
-      operationId: rejectVendoradmin
-      description: "Reject a vendor's KYC submission (`pending → rejected`) with a mandatory reason.\nThe vendor may re-submit after addressing the stated issues."
+      summary: 'Reject dispute'
+      operationId: rejectDispute
+      description: "Deny the dispute: no refund is issued. The dispute is closed with the admin's resolution note.\nIdempotent on an already-rejected dispute."
       parameters: []
-      responses: {}
+      responses:
+        200:
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Dispute rejected.'
+                  data:
+                    dispute:
+                      id: 01J000000000000DEMODISPUTE
+                      order_id: 01J000000000000DEMOORDER1
+                      status:
+                        value: rejected
+                        label: Rejected
+                      reason: attendee_requested
+                      created_at: '2026-06-30T20:00:00Z'
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Dispute rejected.'
+                  data:
+                    type: object
+                    properties:
+                      dispute:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: 01J000000000000DEMODISPUTE
+                          order_id:
+                            type: string
+                            example: 01J000000000000DEMOORDER1
+                          status:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                                example: rejected
+                              label:
+                                type: string
+                                example: Rejected
+                          reason:
+                            type: string
+                            example: attendee_requested
+                          created_at:
+                            type: string
+                            example: '2026-06-30T20:00:00Z'
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
       tags:
-        - 'Vendors / KYC'
+        - Admin
       requestBody:
         required: true
         content:
@@ -1912,21 +3253,190 @@ paths:
             schema:
               type: object
               properties:
-                rejection_reason:
+                resolution:
                   type: string
-                  description: 'Must not be greater than 1000 characters.'
-                  example: b
+                  description: 'Admin note explaining why the dispute was rejected (required). Must not be greater than 1000 characters.'
+                  example: 'Event terms clearly state no refunds within 24 hours. Dispute rejected.'
               required:
-                - rejection_reason
+                - resolution
     parameters:
       -
         in: path
-        name: vendor_id
-        description: 'The ID of the vendor.'
+        name: dispute_id
+        description: 'The ID of the dispute.'
         example: architecto
         required: true
         schema:
           type: string
+  /api/v1/admin/payouts:
+    get:
+      summary: 'List payouts (admin)'
+      operationId: listPayoutsadmin
+      description: 'Paginated list of all vendor payouts. Filter by `status` and/or `vendor_id`.'
+      parameters:
+        -
+          in: query
+          name: status
+          description: 'Filter by payout status.'
+          example: pending
+          required: false
+          schema:
+            type: string
+            description: 'Filter by payout status.'
+            example: pending
+            enum:
+              - pending
+              - approved
+              - processing
+              - paid
+              - failed
+        -
+          in: query
+          name: vendor_id
+          description: 'Filter by vendor (admin only). Must not be greater than 26 characters.'
+          example: no-example
+          required: false
+          schema:
+            type: string
+            description: 'Filter by vendor (admin only). Must not be greater than 26 characters.'
+            example: no-example
+        -
+          in: query
+          name: per_page
+          description: 'Items per page (1–100). Must be at least 1. Must not be greater than 100.'
+          example: 20
+          required: false
+          schema:
+            type: integer
+            description: 'Items per page (1–100). Must be at least 1. Must not be greater than 100.'
+            example: 20
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Payouts retrieved.'
+                  data:
+                    payouts:
+                      -
+                        id: 01JWXYZ000000000000PAYOUT1
+                        vendor_id: 01JWXYZ0000000000000VENDOR
+                        batch_id: '2026-09-20'
+                        currency: BDT
+                        gross: 500000
+                        commission: 50000
+                        net: 450000
+                        payable: 450000
+                        reserved_refund: 0
+                        status:
+                          value: pending
+                          label: Pending
+                        created_at: '2026-06-30T09:00:00+00:00'
+                        updated_at: '2026-06-30T09:00:00+00:00'
+                    pagination:
+                      current_page: 1
+                      last_page: 1
+                      total: 1
+                      per_page: 20
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Payouts retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      payouts:
+                        type: array
+                        example:
+                          -
+                            id: 01JWXYZ000000000000PAYOUT1
+                            vendor_id: 01JWXYZ0000000000000VENDOR
+                            batch_id: '2026-09-20'
+                            currency: BDT
+                            gross: 500000
+                            commission: 50000
+                            net: 450000
+                            payable: 450000
+                            reserved_refund: 0
+                            status:
+                              value: pending
+                              label: Pending
+                            created_at: '2026-06-30T09:00:00+00:00'
+                            updated_at: '2026-06-30T09:00:00+00:00'
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: 01JWXYZ000000000000PAYOUT1
+                            vendor_id:
+                              type: string
+                              example: 01JWXYZ0000000000000VENDOR
+                            batch_id:
+                              type: string
+                              example: '2026-09-20'
+                            currency:
+                              type: string
+                              example: BDT
+                            gross:
+                              type: integer
+                              example: 500000
+                            commission:
+                              type: integer
+                              example: 50000
+                            net:
+                              type: integer
+                              example: 450000
+                            payable:
+                              type: integer
+                              example: 450000
+                            reserved_refund:
+                              type: integer
+                              example: 0
+                            status:
+                              type: object
+                              properties:
+                                value:
+                                  type: string
+                                  example: pending
+                                label:
+                                  type: string
+                                  example: Pending
+                            created_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                            updated_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                      pagination:
+                        type: object
+                        properties:
+                          current_page:
+                            type: integer
+                            example: 1
+                          last_page:
+                            type: integer
+                            example: 1
+                          total:
+                            type: integer
+                            example: 1
+                          per_page:
+                            type: integer
+                            example: 20
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Admin
   /api/v1/admin/payouts/build:
     post:
       summary: 'Build payout batch (admin)'
@@ -2032,7 +3542,7 @@ paths:
                     example: null
                     nullable: true
       tags:
-        - Payouts
+        - Admin
       requestBody:
         required: false
         content:
@@ -2043,11 +3553,11 @@ paths:
                 vendor_id:
                   type: string
                   description: 'Must match an existing stored value. Must not be greater than 26 characters.'
-                  example: b
+                  example: no-example
                 batch_id:
                   type: string
                   description: 'Must not be greater than 64 characters.'
-                  example: 'n'
+                  example: '2026-09-20'
   '/api/v1/admin/payouts/{payout_id}/execute':
     post:
       summary: 'Execute payout'
@@ -2155,7 +3665,7 @@ paths:
                     example: null
                     nullable: true
       tags:
-        - Payouts
+        - Admin
     parameters:
       -
         in: path
@@ -2165,3 +3675,474 @@ paths:
         required: true
         schema:
           type: string
+  /api/v1/admin/ping:
+    get:
+      summary: 'Admin ping'
+      operationId: adminPing
+      description: 'Liveness check scoped to the admin area. Verifies the bearer token carries the admin role.'
+      parameters: []
+      responses:
+        200:
+          description: 'Admin area reachable.'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: ok
+                  data:
+                    area: admin
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: ok
+                  data:
+                    type: object
+                    properties:
+                      area:
+                        type: string
+                        example: admin
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+        401:
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: false
+                  message: Unauthenticated.
+                  data: null
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: Unauthenticated.
+                  data:
+                    type: string
+                    example: null
+                    nullable: true
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Admin
+  '/api/v1/orders/{id}':
+    get:
+      summary: 'Get order'
+      operationId: getOrder
+      description: "Retrieve a single order with its items and holds. Attendees can only view\ntheir own orders; admins can view any order."
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Order retrieved.'
+                  data:
+                    order:
+                      id: 01J000000000000DEMOORDER1
+                      status:
+                        value: paid
+                        label: Paid
+                      total: 75000
+                      currency: BDT
+                      commission_rate: '0.1000'
+                      items:
+                        -
+                          id: 01J000000000000DEMOITEM1
+                          ticket_type_id: 01J000000000000DEMOTICKET
+                          quantity: 3
+                          unit_price: 25000
+                      holds: []
+                      hold_expires_at: null
+                      created_at: '2026-06-30T10:05:00Z'
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Order retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      order:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            example: 01J000000000000DEMOORDER1
+                          status:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                                example: paid
+                              label:
+                                type: string
+                                example: Paid
+                          total:
+                            type: integer
+                            example: 75000
+                          currency:
+                            type: string
+                            example: BDT
+                          commission_rate:
+                            type: string
+                            example: '0.1000'
+                          items:
+                            type: array
+                            example:
+                              - id: 01J000000000000DEMOITEM1
+                                ticket_type_id: 01J000000000000DEMOTICKET
+                                quantity: 3
+                                unit_price: 25000
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                  example: 01J000000000000DEMOITEM1
+                                ticket_type_id:
+                                  type: string
+                                  example: 01J000000000000DEMOTICKET
+                                quantity:
+                                  type: integer
+                                  example: 3
+                                unit_price:
+                                  type: integer
+                                  example: 25000
+                          holds:
+                            type: array
+                            example: []
+                          hold_expires_at:
+                            type: string
+                            example: null
+                            nullable: true
+                          created_at:
+                            type: string
+                            example: '2026-06-30T10:05:00Z'
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+        403:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: false
+                  message: 'This action is unauthorized.'
+                  data: null
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: 'This action is unauthorized.'
+                  data:
+                    type: string
+                    example: null
+                    nullable: true
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+        404:
+          description: 'Not Found'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: false
+                  message: 'Resource not found.'
+                  data: null
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: 'Resource not found.'
+                  data:
+                    type: string
+                    example: null
+                    nullable: true
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Orders
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the order.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  /api/v1/payouts:
+    get:
+      summary: 'My payouts (vendor)'
+      operationId: myPayoutsvendor
+      description: "Paginated list of the authenticated vendor's own payouts, newest first.\nOptionally filter by `status`."
+      parameters:
+        -
+          in: query
+          name: status
+          description: 'Filter by payout status.'
+          example: pending
+          required: false
+          schema:
+            type: string
+            description: 'Filter by payout status.'
+            example: pending
+            enum:
+              - pending
+              - approved
+              - processing
+              - paid
+              - failed
+        -
+          in: query
+          name: vendor_id
+          description: 'Filter by vendor (admin only). Must not be greater than 26 characters.'
+          example: no-example
+          required: false
+          schema:
+            type: string
+            description: 'Filter by vendor (admin only). Must not be greater than 26 characters.'
+            example: no-example
+        -
+          in: query
+          name: per_page
+          description: 'Items per page (1–100). Must be at least 1. Must not be greater than 100.'
+          example: 20
+          required: false
+          schema:
+            type: integer
+            description: 'Items per page (1–100). Must be at least 1. Must not be greater than 100.'
+            example: 20
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                  message: 'Payouts retrieved.'
+                  data:
+                    payouts:
+                      -
+                        id: 01JWXYZ000000000000PAYOUT1
+                        vendor_id: 01JWXYZ0000000000000VENDOR
+                        batch_id: '2026-09-20'
+                        currency: BDT
+                        gross: 500000
+                        commission: 50000
+                        net: 450000
+                        payable: 450000
+                        reserved_refund: 0
+                        status:
+                          value: pending
+                          label: Pending
+                        created_at: '2026-06-30T09:00:00+00:00'
+                        updated_at: '2026-06-30T09:00:00+00:00'
+                    pagination:
+                      current_page: 1
+                      last_page: 1
+                      total: 1
+                      per_page: 20
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Payouts retrieved.'
+                  data:
+                    type: object
+                    properties:
+                      payouts:
+                        type: array
+                        example:
+                          -
+                            id: 01JWXYZ000000000000PAYOUT1
+                            vendor_id: 01JWXYZ0000000000000VENDOR
+                            batch_id: '2026-09-20'
+                            currency: BDT
+                            gross: 500000
+                            commission: 50000
+                            net: 450000
+                            payable: 450000
+                            reserved_refund: 0
+                            status:
+                              value: pending
+                              label: Pending
+                            created_at: '2026-06-30T09:00:00+00:00'
+                            updated_at: '2026-06-30T09:00:00+00:00'
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: 01JWXYZ000000000000PAYOUT1
+                            vendor_id:
+                              type: string
+                              example: 01JWXYZ0000000000000VENDOR
+                            batch_id:
+                              type: string
+                              example: '2026-09-20'
+                            currency:
+                              type: string
+                              example: BDT
+                            gross:
+                              type: integer
+                              example: 500000
+                            commission:
+                              type: integer
+                              example: 50000
+                            net:
+                              type: integer
+                              example: 450000
+                            payable:
+                              type: integer
+                              example: 450000
+                            reserved_refund:
+                              type: integer
+                              example: 0
+                            status:
+                              type: object
+                              properties:
+                                value:
+                                  type: string
+                                  example: pending
+                                label:
+                                  type: string
+                                  example: Pending
+                            created_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                            updated_at:
+                              type: string
+                              example: '2026-06-30T09:00:00+00:00'
+                      pagination:
+                        type: object
+                        properties:
+                          current_page:
+                            type: integer
+                            example: 1
+                          last_page:
+                            type: integer
+                            example: 1
+                          total:
+                            type: integer
+                            example: 1
+                          per_page:
+                            type: integer
+                            example: 20
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: false
+                  message: Unauthenticated.
+                  data: null
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: Unauthenticated.
+                  data:
+                    type: string
+                    example: null
+                    nullable: true
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Payouts
+  /api/v1/payouts/preview:
+    get:
+      summary: 'Preview next payout (vendor)'
+      operationId: previewNextPayoutvendor
+      description: "Returns the estimated payout breakdown without creating anything. Returns null data when\nthere are no eligible settled orders or the balance is below the minimum threshold."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: false
+                  data: null
+                  message: 'Server error.'
+                  errors: null
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  data:
+                    type: string
+                    example: null
+                    nullable: true
+                  message:
+                    type: string
+                    example: 'Server error.'
+                  errors:
+                    type: string
+                    example: null
+                    nullable: true
+      tags:
+        - Payouts
+  /api/v1/payouts/request:
+    post:
+      summary: 'Request payout (vendor)'
+      operationId: requestPayoutvendor
+      description: "Creates a pending payout record for the authenticated vendor using today as the batch date.\nIdempotent — calling again on the same day returns the existing pending payout unchanged.\nReturns 422 when there are no eligible orders or the balance is below threshold."
+      parameters: []
+      responses: {}
+      tags:
+        - Payouts

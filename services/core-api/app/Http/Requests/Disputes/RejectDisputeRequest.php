@@ -26,4 +26,15 @@ class RejectDisputeRequest extends FormRequest
             'resolution.required' => __('api.disputes.resolution_required'),
         ];
     }
+
+    /** @return array<string, mixed> */
+    public function bodyParameters(): array
+    {
+        return [
+            'resolution' => [
+                'description' => 'Admin note explaining why the dispute was rejected (required).',
+                'example' => 'Event terms clearly state no refunds within 24 hours. Dispute rejected.',
+            ],
+        ];
+    }
 }

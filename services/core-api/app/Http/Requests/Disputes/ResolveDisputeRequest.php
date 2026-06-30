@@ -18,4 +18,15 @@ class ResolveDisputeRequest extends FormRequest
             'resolution' => ['nullable', 'string', 'max:1000'],
         ];
     }
+
+    /** @return array<string, mixed> */
+    public function bodyParameters(): array
+    {
+        return [
+            'resolution' => [
+                'description' => 'Admin note explaining the resolution outcome (optional).',
+                'example' => 'Reviewed CCTV footage — attendee did not enter. Approved full refund.',
+            ],
+        ];
+    }
 }

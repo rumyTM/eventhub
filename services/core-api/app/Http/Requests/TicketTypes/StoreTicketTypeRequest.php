@@ -21,6 +21,12 @@ class StoreTicketTypeRequest extends FormRequest
      */
     public function rules(): array
     {
+        $event = $this->route('event');
+        $salesEndRules = ['nullable', 'date', 'after:sales_start'];
+        if ($event !== null) {
+            $salesEndRules[] = 'before_or_equal:'.$event->starts_at->toIso8601String();
+        }
+
         return [
             'kind' => ['required', 'string', Rule::in(array_column(TicketKind::cases(), 'value'))],
             'price' => ['required', 'integer', 'min:0'],
@@ -29,7 +35,7 @@ class StoreTicketTypeRequest extends FormRequest
             'group_size' => ['nullable', 'integer', 'min:2'],
             'group_discount' => ['nullable', 'required_with:group_size', 'numeric', 'min:0', 'lt:1'],
             'sales_start' => ['nullable', 'date'],
-            'sales_end' => ['nullable', 'date', 'after:sales_start', 'before_or_equal:'.$this->route('event')->starts_at->toIso8601String()],
+            'sales_end' => $salesEndRules,
         ];
     }
 

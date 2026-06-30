@@ -8,7 +8,7 @@ partial failure**.
 > **Reviewers start here**, then read [`CLAUDE.md`](./CLAUDE.md) for the full system map. Planning documents are in
 > [`docs/`](./docs). The build is tracked in [`PLAN.md`](./PLAN.md) and [`WORKLOG.md`](./WORKLOG.md).
 >
-> **Video walkthrough:** _[add Loom/Drive/YouTube unlisted link here]_
+> **Video walkthrough:** https://youtu.be/4TieIoBcGWA
 
 ## Architecture at a glance
 

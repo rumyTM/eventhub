@@ -21,6 +21,10 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Build caches / local tooling
+*.tsbuildinfo
+.claude/settings.local.json
+
 # Docker volumes / logs
 /docker/**/data/
 *.log
