@@ -6,6 +6,7 @@ use App\Enums\EventStatus;
 use App\Exceptions\Events\CapacityBelowAllocatedException;
 use App\Exceptions\Events\InvalidEventTransitionException;
 use App\Exceptions\Events\VendorNotVerifiedException;
+use App\Jobs\RefundEventOrdersJob;
 use App\Models\Event;
 use App\Models\User;
 use App\Repositories\Contracts\EventRepositoryInterface;
@@ -53,12 +54,14 @@ final class EventService
      */
     public function update(Event $event, array $data): Event
     {
+        $previousStatus = $event->status;
+
         if (array_key_exists('status', $data)) {
             $this->guardStatusTransition($event, EventStatus::from($data['status']));
         }
 
-        if (array_key_exists('capacity', $data)) {
-            return DB::transaction(function () use ($event, $data): Event {
+        $updated = array_key_exists('capacity', $data)
+            ? DB::transaction(function () use ($event, $data): Event {
                 $locked = $this->events->lockForUpdate($event->id);
                 $allocated = $this->ticketTypes->sumQuantityTotalForEvent($locked->id);
 
@@ -67,10 +70,20 @@ final class EventService
                 }
 
                 return $this->events->update($event, $data);
-            });
+            })
+            : $this->events->update($event, $data);
+
+        if ($this->cancelledJustNow($previousStatus, $updated->status)) {
+            RefundEventOrdersJob::dispatch($updated->id)->afterCommit();
         }
 
-        return $this->events->update($event, $data);
+        return $updated;
+    }
+
+    /** True only on the transition INTO cancelled — never re-fires on a repeat no-op update. */
+    private function cancelledJustNow(EventStatus $previous, EventStatus $current): bool
+    {
+        return $current === EventStatus::Cancelled && $previous !== EventStatus::Cancelled;
     }
 
     public function delete(Event $event): void

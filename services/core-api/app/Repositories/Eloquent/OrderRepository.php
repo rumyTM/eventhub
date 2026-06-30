@@ -121,6 +121,17 @@ final class OrderRepository implements OrderRepositoryInterface
             ->all();
     }
 
+    public function paidOrderIdsForEvent(string $eventId): array
+    {
+        return Order::query()
+            ->whereIn('status', [OrderStatus::Paid->value, OrderStatus::PartiallyRefunded->value])
+            ->whereHas('items.ticketType', function ($q) use ($eventId): void {
+                $q->withTrashed()->where('event_id', $eventId);
+            })
+            ->pluck('id')
+            ->all();
+    }
+
     public function paginateForAttendee(string $attendeeId, int $perPage): LengthAwarePaginator
     {
         return Order::query()

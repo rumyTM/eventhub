@@ -66,6 +66,15 @@ interface OrderRepositoryInterface
      */
     public function eligibleVendorIdsForPayout(): array;
 
+    /**
+     * IDs of paid/partially-refunded orders that have at least one item on the given event — the pool a
+     * cancelled event must bulk-refund at 100% (ADR-23). ticket_types queried withTrashed so a
+     * soft-deleted ticket type doesn't hide an order from its refund.
+     *
+     * @return list<string>
+     */
+    public function paidOrderIdsForEvent(string $eventId): array;
+
     /** Paginate orders for an attendee, sorted by created_at descending. */
     public function paginateForAttendee(string $attendeeId, int $perPage): LengthAwarePaginator;
 

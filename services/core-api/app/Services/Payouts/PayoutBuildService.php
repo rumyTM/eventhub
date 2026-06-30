@@ -163,7 +163,7 @@ final class PayoutBuildService
             return null;
         }
 
-        $amounts       = $this->ledger->vendorPayoutAmounts($vendorId, $eligibleOrderIds);
+        $amounts = $this->ledger->vendorPayoutAmounts($vendorId, $eligibleOrderIds);
         $reservedRefund = $this->ledger->pendingRefundAmountForOrders($eligibleOrderIds);
 
         $calc = $this->calculatePayout->handle(
@@ -174,14 +174,14 @@ final class PayoutBuildService
         );
 
         return [
-            'gross'           => $calc->gross,
-            'commission'      => $calc->commission,
-            'net'             => $calc->net,
-            'payable'         => $calc->payable,
+            'gross' => $calc->gross,
+            'commission' => $calc->commission,
+            'net' => $calc->net,
+            'payable' => $calc->payable,
             'reserved_refund' => $reservedRefund,
-            'currency'        => 'BDT',
+            'currency' => 'BDT',
             'meets_threshold' => $calc->meetsThreshold,
-            'threshold'       => $threshold,
+            'threshold' => $threshold,
         ];
     }
 
@@ -202,7 +202,9 @@ final class PayoutBuildService
             $idempotencyKey = "payout:{$vendorId}:{$batchId}";
             $existing = $this->payouts->findByIdempotencyKey($idempotencyKey);
             if ($existing !== null && $existing->status !== PayoutStatus::Failed) {
-                continue; // already built for this batch in a prior call
+                $payouts[] = $existing; // already built for this batch in a prior call
+
+                continue;
             }
             $payout = $this->buildForVendor($vendorId, $batchId);
             if ($payout !== null) {
