@@ -32,4 +32,12 @@ final class RefundRepository implements RefundRepositoryInterface
 
         return $refund;
     }
+
+    public function sumNonFailedForPayment(string $paymentId): int
+    {
+        return (int) Refund::query()
+            ->where('payment_id', $paymentId)
+            ->where('status', '!=', RefundStatus::Failed->value)
+            ->sum('amount');
+    }
 }

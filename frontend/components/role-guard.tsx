@@ -19,11 +19,11 @@ export function RoleGuard({ role, children }: Props) {
       router.replace("/login");
       return;
     }
-    if (user.role !== role) {
+    if (user.role.value !== role) {
       router.replace("/");
     }
   }, [user, loading, role, router]);
 
-  if (loading || !user || user.role !== role) return <LoadingSpinner />;
+  if (loading || !user || user.role.value !== role) return <LoadingSpinner />;
   return <>{children}</>;
 }

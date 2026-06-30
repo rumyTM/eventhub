@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Order, OrderListResponse, Refund } from "./types";
+import type { DisputeItem, Order, OrderListResponse, Refund } from "./types";
 
 export const ordersApi = {
   list: (page = 1) =>
@@ -19,12 +19,15 @@ export const ordersApi = {
       { idempotencyKey },
     ),
 
+  pay: (orderId: string) =>
+    api.post<{ order: Order }>(`/orders/${orderId}/pay`, {}),
+
   refund: (
     orderId: string,
     reason: string,
     items?: { order_item_id: string; quantity: number }[],
   ) =>
-    api.post<{ refund: Refund }>(`/orders/${orderId}/refund`, {
+    api.post<{ refund: Refund } | { dispute: DisputeItem }>(`/orders/${orderId}/refund`, {
       reason,
       ...(items ? { items } : {}),
     }),

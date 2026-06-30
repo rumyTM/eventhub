@@ -301,7 +301,7 @@ class PayoutBuildServiceTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.meta.total', 1);
+            ->assertJsonPath('data.pagination.total', 1);
     }
 
     public function test_admin_can_trigger_payout_build_via_endpoint(): void
@@ -381,6 +381,104 @@ class PayoutBuildServiceTest extends TestCase
         // adjustments = -30_000 + 3_000 = -27_000; payable = 90_000 + (-27_000) = 63_000
         $this->assertSame(90_000, $payout->net);
         $this->assertSame(63_000, $payout->payable);
+    }
+
+    // --- reserved_refund: informational-only, no double-count ---------------------
+
+    public function test_reserved_refund_reflects_in_flight_refund_without_reducing_payable(): void
+    {
+        // A refund in requested/pending status (no ledger entry yet) is surfaced on the payout as
+        // reserved_refund (informational) but must NOT reduce payable. Avoiding double-counting:
+        // the ledger-based adjustment will capture the deduction only once the refund completes.
+        // Also proves pendingRefundAmountForOrders() joins through payments (refunds have payment_id,
+        // not order_id) — the amount is found even though there is no direct order→refund FK.
+        ['vendor' => $vendor, 'order' => $order] = $this->eligibleVendorSetup(
+            saleAmount: 100_000, commissionAmount: -10_000  // net = 90_000
+        );
+
+        $payment = Payment::factory()->create(['order_id' => $order->id]);
+        Refund::factory()->create(['payment_id' => $payment->id, 'amount' => 20_000]); // status=requested by default
+
+        $payout = $this->service->buildForVendor($vendor->id, self::BATCH);
+
+        $this->assertNotNull($payout);
+        $this->assertSame(20_000, $payout->reserved_refund);
+        // payable is NOT reduced — the refund has no ledger entry yet, so adjustments = 0
+        $this->assertSame(90_000, $payout->payable);
+        $this->assertSame(90_000, $payout->net);
+    }
+
+    public function test_completed_refund_is_not_counted_in_reserved_refund(): void
+    {
+        // A completed refund already has ledger entries and must NOT appear in reserved_refund.
+        // reserved_refund must be 0; the deduction is already fully captured in adjustments.
+        ['vendor' => $vendor, 'order' => $order] = $this->eligibleVendorSetup(
+            saleAmount: 100_000, commissionAmount: -10_000
+        );
+
+        $payment = Payment::factory()->create(['order_id' => $order->id]);
+        $refund = Refund::factory()->completed()->create(['payment_id' => $payment->id, 'amount' => 20_000]);
+
+        // Ledger entries a completed refund produces: sale reversal + commission returned.
+        LedgerEntry::create([
+            'vendor_id' => $vendor->id, 'subject_type' => 'refund', 'subject_id' => $refund->id,
+            'entry_type' => LedgerEntryType::Refund->value, 'amount' => -20_000, 'currency' => 'BDT',
+        ]);
+        LedgerEntry::create([
+            'vendor_id' => $vendor->id, 'subject_type' => 'refund', 'subject_id' => $refund->id,
+            'entry_type' => LedgerEntryType::Commission->value, 'amount' => 2_000, 'currency' => 'BDT',
+        ]);
+
+        $payout = $this->service->buildForVendor($vendor->id, self::BATCH);
+
+        $this->assertNotNull($payout);
+        // Completed refund → not in-flight → reserved_refund = 0
+        $this->assertSame(0, $payout->reserved_refund);
+        // adjustments = −20_000 + 2_000 = −18_000; payable = 90_000 − 18_000 = 72_000
+        $this->assertSame(72_000, $payout->payable);
+    }
+
+    public function test_completed_refund_moves_to_adjustments_in_next_cycle_with_no_double_deduction(): void
+    {
+        // Proves the no-double-count guarantee across two payout cycles:
+        //   Cycle 1: refund is in-flight → reserved_refund = 20_000; payable = 90_000 (NOT reduced)
+        //   Cycle 1 fails (order returns to eligible pool); refund completes; ledger entries written.
+        //   Cycle 2: adjustments = −18_000 (−20k sale + 2k commission reversal); reserved_refund = 0;
+        //             payable = 72_000. The refund is counted exactly once, never in both fields.
+        ['vendor' => $vendor, 'order' => $order] = $this->eligibleVendorSetup(
+            saleAmount: 100_000, commissionAmount: -10_000
+        );
+
+        $payment = Payment::factory()->create(['order_id' => $order->id]);
+        $refund = Refund::factory()->create(['payment_id' => $payment->id, 'amount' => 20_000]);
+
+        // --- Cycle 1: refund in-flight ---
+        $cycle1 = $this->service->buildForVendor($vendor->id, self::BATCH);
+        $this->assertNotNull($cycle1);
+        $this->assertSame(20_000, $cycle1->reserved_refund);
+        $this->assertSame(90_000, $cycle1->payable);
+
+        // Fail cycle 1 so the order is released back into the eligible pool for cycle 2.
+        $cycle1->update(['status' => PayoutStatus::Failed->value]);
+
+        // Refund completes: update status and write its ledger entries.
+        $refund->update(['status' => RefundStatus::Completed->value]);
+        LedgerEntry::create([
+            'vendor_id' => $vendor->id, 'subject_type' => 'refund', 'subject_id' => $refund->id,
+            'entry_type' => LedgerEntryType::Refund->value, 'amount' => -20_000, 'currency' => 'BDT',
+        ]);
+        LedgerEntry::create([
+            'vendor_id' => $vendor->id, 'subject_type' => 'refund', 'subject_id' => $refund->id,
+            'entry_type' => LedgerEntryType::Commission->value, 'amount' => 2_000, 'currency' => 'BDT',
+        ]);
+
+        // --- Cycle 2: refund now in adjustments; NOT in reserved_refund ---
+        $cycle2 = $this->service->buildForVendor($vendor->id, '2026-07-01');
+        $this->assertNotNull($cycle2);
+        $this->assertSame(0, $cycle2->reserved_refund);
+        $this->assertSame(72_000, $cycle2->payable); // 90_000 + (−20_000 + 2_000)
+        // Two separate payout rows — cycles are independent.
+        $this->assertDatabaseCount('payouts', 2);
     }
 
     // --- M-3: vendor with mixed completed / ongoing event orders ------------------

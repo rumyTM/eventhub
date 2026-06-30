@@ -12,6 +12,18 @@ use App\Models\User;
  */
 class OrderPolicy
 {
+    /** An attendee may view their own order, or an admin can view any order. */
+    public function view(User $user, Order $order): bool
+    {
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $user->isAttendee()
+            && $user->attendee !== null
+            && $order->attendee_id === $user->attendee->id;
+    }
+
     /** An attendee may request a refund only for their own order. */
     public function refund(User $user, Order $order): bool
     {

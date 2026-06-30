@@ -21,5 +21,9 @@ RUN composer install --no-interaction --prefer-dist --no-progress --no-scripts -
 COPY . /app
 RUN composer dump-autoload --optimize --no-interaction
 
+# Entrypoint merges Docker runtime env vars into .env before PHP starts (see script for why).
+RUN chmod +x /app/docker-entrypoint.sh
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+
 # APP_PORT is provided by docker-compose (8000 core-api / 8001 payment-service).
-CMD php artisan serve --host=0.0.0.0 --port=${APP_PORT:-8000}
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8001"]

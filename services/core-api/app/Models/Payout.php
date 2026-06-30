@@ -27,6 +27,7 @@ class Payout extends Model
         'status',
         'batch_id',
         'idempotency_key',
+        'paid_at',
     ];
 
     /**
@@ -45,6 +46,7 @@ class Payout extends Model
             'net' => 'integer',
             'payable' => 'integer',
             'reserved_refund' => 'integer',
+            'paid_at' => 'datetime',
         ];
     }
 

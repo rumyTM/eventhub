@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Vendor, VendorListResponse, Order, OrderListResponse, Refund } from "./types";
+import type { Vendor, VendorListResponse, DisputeItem, DisputeListResponse, Refund } from "./types";
 
 export const adminApi = {
   pendingVendors: (page = 1) =>
@@ -11,13 +11,17 @@ export const adminApi = {
   rejectVendor: (vendorId: string, reason: string) =>
     api.post<{ vendor: Vendor }>(`/admin/vendors/${vendorId}/reject`, { reason }),
 
-  // Dispute/refund queue — uses the orders listing filtered by status
-  disputedOrders: (page = 1) =>
-    api.get<OrderListResponse>(`/orders?status=disputed&page=${page}`),
+  // Dispute queue (out-of-policy refund contests)
+  listDisputes: (page = 1) =>
+    api.get<DisputeListResponse>(`/admin/disputes?page=${page}`),
 
-  initiateRefund: (
-    orderId: string,
-    reason: string,
-  ) =>
+  resolveDispute: (disputeId: string, resolution?: string) =>
+    api.post<{ dispute: DisputeItem }>(`/admin/disputes/${disputeId}/resolve`, { resolution }),
+
+  rejectDispute: (disputeId: string, resolution: string) =>
+    api.post<{ dispute: DisputeItem }>(`/admin/disputes/${disputeId}/reject`, { resolution }),
+
+  // Legacy: admin-initiated direct refund (event cancellation, etc.)
+  initiateRefund: (orderId: string, reason: string) =>
     api.post<{ refund: Refund }>(`/admin/orders/${orderId}/refund`, { reason }),
 };

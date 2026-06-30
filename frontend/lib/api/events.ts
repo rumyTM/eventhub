@@ -57,6 +57,8 @@ export const eventsApi = {
       quantity_total: number;
       sales_start: string;
       sales_end: string;
+      group_size: number;
+      group_discount: number;
     }>,
   ) =>
     api.put<{ ticket_type: TicketType }>(

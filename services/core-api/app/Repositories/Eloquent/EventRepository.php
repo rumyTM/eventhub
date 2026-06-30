@@ -23,6 +23,7 @@ final class EventRepository implements EventRepositoryInterface
     {
         return Event::query()
             ->where('vendor_id', $vendorId)
+            ->with('ticketTypes')
             ->latest('created_at')
             ->paginate($perPage);
     }
@@ -30,6 +31,7 @@ final class EventRepository implements EventRepositoryInterface
     public function paginateAll(int $perPage): LengthAwarePaginator
     {
         return Event::query()
+            ->with('ticketTypes')
             ->latest('created_at')
             ->paginate($perPage);
     }

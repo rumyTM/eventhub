@@ -36,6 +36,113 @@ final class PayoutController extends Controller
     ) {}
 
     /**
+     * My payouts (vendor)
+     *
+     * Paginated list of the authenticated vendor's own payouts, newest first.
+     * Optionally filter by `status`.
+     *
+     * @group Payouts
+     *
+     * @authenticated
+     *
+     * @response 200 scenario="Success" {"success":true,"message":"Payouts retrieved.","data":{"payouts":[{"id":"01JWXYZ000000000000PAYOUT1","vendor_id":"01JWXYZ0000000000000VENDOR","batch_id":"2026-09-20","currency":"BDT","gross":500000,"commission":50000,"net":450000,"payable":450000,"reserved_refund":0,"status":{"value":"pending","label":"Pending"},"created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}],"pagination":{"current_page":1,"last_page":1,"total":1,"per_page":20}},"errors":null}
+     * @response 401 scenario="Unauthenticated" {"success":false,"message":"Unauthenticated.","data":null,"errors":null}
+     */
+    public function myPayouts(ListPayoutsRequest $request): JsonResponse
+    {
+        LogHelper::landingLog($request, __CLASS__.' - '.__FUNCTION__);
+
+        $vendor = $request->user()->vendor;
+        if ($vendor === null) {
+            return ApiResponse::error(message: 'Vendor profile not found.', status: 422);
+        }
+
+        $validated = $request->validated();
+        $payouts = $this->payouts->list(
+            status: $validated['status'] ?? null,
+            vendorId: $vendor->id,
+            perPage: (int) ($validated['per_page'] ?? 20),
+        );
+
+        return ApiResponse::success(
+            data: [
+                'payouts' => PayoutResource::collection($payouts),
+                'pagination' => [
+                    'current_page' => $payouts->currentPage(),
+                    'last_page' => $payouts->lastPage(),
+                    'total' => $payouts->total(),
+                    'per_page' => $payouts->perPage(),
+                ],
+            ],
+            message: __('api.payouts.listed'),
+        );
+    }
+
+    /**
+     * Preview next payout (vendor)
+     *
+     * Returns the estimated payout breakdown without creating anything. Returns null data when
+     * there are no eligible settled orders or the balance is below the minimum threshold.
+     *
+     * @group Payouts
+     *
+     * @authenticated
+     */
+    public function preview(Request $request): JsonResponse
+    {
+        LogHelper::landingLog($request, __CLASS__.' - '.__FUNCTION__);
+
+        $vendor = $request->user()->vendor;
+        if ($vendor === null) {
+            return ApiResponse::error(message: 'Vendor profile not found.', status: 422);
+        }
+
+        $preview = $this->buildService->previewForVendor($vendor->id);
+
+        return ApiResponse::success(
+            data: ['preview' => $preview],
+            message: $preview !== null ? __('api.payouts.preview_ready') : __('api.payouts.nothing_eligible'),
+        );
+    }
+
+    /**
+     * Request payout (vendor)
+     *
+     * Creates a pending payout record for the authenticated vendor using today as the batch date.
+     * Idempotent — calling again on the same day returns the existing pending payout unchanged.
+     * Returns 422 when there are no eligible orders or the balance is below threshold.
+     *
+     * @group Payouts
+     *
+     * @authenticated
+     */
+    public function requestPayout(Request $request): JsonResponse
+    {
+        LogHelper::landingLog($request, __CLASS__.' - '.__FUNCTION__);
+
+        $vendor = $request->user()->vendor;
+        if ($vendor === null) {
+            return ApiResponse::error(message: 'Vendor profile not found.', status: 422);
+        }
+
+        $batchId = now()->toDateString();
+        $payout  = $this->buildService->buildForVendor($vendor->id, $batchId);
+
+        if ($payout === null) {
+            return ApiResponse::error(
+                message: __('api.payouts.nothing_eligible'),
+                status: 422,
+            );
+        }
+
+        return ApiResponse::success(
+            data: ['payout' => new PayoutResource($payout)],
+            message: __('api.payouts.requested'),
+            status: 201,
+        );
+    }
+
+    /**
      * Execute payout
      *
      * Dispatch payment for a `pending` or `approved` payout. The job transitions the payout to
@@ -84,7 +191,7 @@ final class PayoutController extends Controller
      *
      * @authenticated
      *
-     * @response 200 scenario="Success" {"success":true,"message":"Payouts retrieved.","data":{"payouts":[{"id":"01JWXYZ000000000000PAYOUT1","vendor_id":"01JWXYZ0000000000000VENDOR","batch_id":"2026-09-20","currency":"BDT","gross":500000,"commission":50000,"net":450000,"payable":450000,"reserved_refund":0,"status":{"value":"pending","label":"Pending"},"created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}],"meta":{"current_page":1,"last_page":1,"total":1,"per_page":20}},"errors":null}
+     * @response 200 scenario="Success" {"success":true,"message":"Payouts retrieved.","data":{"payouts":[{"id":"01JWXYZ000000000000PAYOUT1","vendor_id":"01JWXYZ0000000000000VENDOR","batch_id":"2026-09-20","currency":"BDT","gross":500000,"commission":50000,"net":450000,"payable":450000,"reserved_refund":0,"status":{"value":"pending","label":"Pending"},"created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}],"pagination":{"current_page":1,"last_page":1,"total":1,"per_page":20}},"errors":null}
      */
     public function index(ListPayoutsRequest $request): JsonResponse
     {
@@ -100,7 +207,7 @@ final class PayoutController extends Controller
         return ApiResponse::success(
             data: [
                 'payouts' => PayoutResource::collection($payouts),
-                'meta' => [
+                'pagination' => [
                     'current_page' => $payouts->currentPage(),
                     'last_page' => $payouts->lastPage(),
                     'total' => $payouts->total(),

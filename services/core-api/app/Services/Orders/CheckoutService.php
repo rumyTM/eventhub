@@ -137,8 +137,9 @@ final class CheckoutService
                 throw new TicketsUnavailableException(requested: $quantity, available: max(0, $available));
             }
 
+            $originalPrice = (int) $locked->price;
             $unitPrice = $this->resolvePrice->handle($locked, $quantity);
-            $lines[] = ['ticket_type_id' => $ticketTypeId, 'quantity' => $quantity, 'unit_price' => $unitPrice];
+            $lines[] = ['ticket_type_id' => $ticketTypeId, 'quantity' => $quantity, 'unit_price' => $unitPrice, 'original_price' => $originalPrice];
             $total += $quantity * $unitPrice;
         }
 
@@ -157,7 +158,8 @@ final class CheckoutService
             $this->orders->addItem($order, [
                 'ticket_type_id' => $line['ticket_type_id'],
                 'quantity' => $line['quantity'],
-                'unit_price' => $line['unit_price'], // locked at hold creation
+                'unit_price' => $line['unit_price'],       // locked at hold creation
+                'original_price' => $line['original_price'], // pre-discount price for receipt display
             ]);
 
             $this->holds->create([

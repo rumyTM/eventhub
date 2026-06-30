@@ -15,6 +15,7 @@ use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\PayoutRepositoryInterface;
 use App\Repositories\Contracts\RefundRepositoryInterface;
 use App\Repositories\Contracts\TicketRepositoryInterface;
+use App\Repositories\Contracts\TicketTypeRepositoryInterface;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -47,6 +48,7 @@ final class ProcessRefundWebhookService
         private readonly RefundRepositoryInterface $refunds,
         private readonly LedgerEntryRepositoryInterface $ledger,
         private readonly TicketRepositoryInterface $tickets,
+        private readonly TicketTypeRepositoryInterface $ticketTypes,
         private readonly PayoutRepositoryInterface $payouts,
         private readonly CalculateCommission $calculateCommission,
     ) {}
@@ -162,25 +164,36 @@ final class ProcessRefundWebhookService
     }
 
     /**
-     * Void tickets + set the order's refunded state. When cumulative refunds reach the order total the
-     * order is fully `refunded` and its still-valid tickets are voided; otherwise it is
-     * `partially_refunded` (the exact tickets aren't identifiable without a persisted per-item selection,
-     * so they are left valid — a documented follow-up).
+     * Void tickets + set the order's refunded state.
+     *
+     * Tickets are ALWAYS voided on any completed refund — the attendee is cancelling their purchase
+     * regardless of the money-back percentage (policy governs %, not ticket fate). This returns
+     * inventory for resale immediately when sales are still open.
+     *
+     * Order status reflects money returned, not ticket count:
+     *   - cumulative refunds = order total  → `refunded`   (full money back, e.g. >48h window)
+     *   - cumulative refunds < order total  → `partially_refunded` (policy-capped, e.g. 50% at 24-48h)
      */
     private function voidTicketsAndUpdateOrder(Order $order, Refund $refund): void
     {
-        // Completed-only total (M-2): unconditionally correct for the full-vs-partial threshold
-        // regardless of open-refund state; includes the just-marked-completed refund.
+        // Always void and return inventory — ticket cancellation is independent of money-back percentage.
+        $this->tickets->voidValidForOrder($order->id);
+
+        // Return inventory per ticket type; items already loaded by writeReversalLedger.
+        foreach ($order->items as $item) {
+            $this->ticketTypes->decrementSold($item->ticket_type_id, $item->quantity);
+        }
+
+        // Completed-only total (M-2): includes the just-marked-completed refund.
         $refundedTotal = $this->refunds->completedRefundedTotalForOrder($order->id);
 
         if ($refundedTotal >= (int) $order->total) {
-            $this->tickets->voidValidForOrder($order->id);
             $this->orders->markRefunded($order);
-
-            return;
+        } else {
+            // Policy-capped refund: tickets voided and inventory returned, but financial status
+            // reflects that only a portion of the order value was refunded (for accounting).
+            $this->orders->markPartiallyRefunded($order);
         }
-
-        $this->orders->markPartiallyRefunded($order);
     }
 
     /**

@@ -42,7 +42,7 @@ export function Nav({ links }: { links: NavLink[] }) {
         <div className="flex items-center gap-3">
           {user && (
             <span className="hidden text-sm text-muted-foreground md:block">
-              {user.name} ({user.role})
+              {user.name} ({user.role.label})
             </span>
           )}
           <Button variant="outline" size="sm" onClick={handleLogout}>

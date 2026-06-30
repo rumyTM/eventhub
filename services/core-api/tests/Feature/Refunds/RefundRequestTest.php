@@ -126,13 +126,18 @@ class RefundRequestTest extends TestCase
 
     // --- ineligible / out-of-policy ---
 
-    public function test_request_inside_zero_window_is_rejected_with_no_refund_or_job(): void
+    public function test_request_inside_zero_window_opens_a_dispute_with_no_refund_or_job(): void
     {
         $attendee = $this->actingAttendee();
         [$order] = $this->paidOrder($attendee, startHours: 12); // <24h → 0%
 
-        $this->postJson("/api/v1/orders/{$order->id}/refund")->assertStatus(422);
+        $this->postJson("/api/v1/orders/{$order->id}/refund")
+            ->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.dispute.order_id', $order->id)
+            ->assertJsonPath('data.dispute.status.value', 'open');
 
+        $this->assertDatabaseCount('disputes', 1);
         $this->assertDatabaseCount('refunds', 0);
         Queue::assertNotPushed(ExecuteRefundJob::class);
     }

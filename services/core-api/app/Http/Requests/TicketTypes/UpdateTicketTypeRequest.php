@@ -40,12 +40,17 @@ class UpdateTicketTypeRequest extends FormRequest
         $validator->after(function (Validator $validator): void {
             /** @var TicketType $ticketType */
             $ticketType = $this->route('ticketType');
+            $event = $ticketType->event ?? $this->route('event');
 
             $start = $this->date('sales_start') ?? $ticketType->sales_start;
             $end = $this->date('sales_end') ?? $ticketType->sales_end;
 
             if ($start !== null && $end !== null && $start >= $end) {
                 $validator->errors()->add('sales_end', __('api.validation.sales_ends_after_starts'));
+            }
+
+            if ($end !== null && $event !== null && $end > $event->starts_at) {
+                $validator->errors()->add('sales_end', __('api.validation.sales_end_before_event_start'));
             }
         });
     }
@@ -64,6 +69,16 @@ class UpdateTicketTypeRequest extends FormRequest
     {
         if (is_string($this->currency)) {
             $this->merge(['currency' => mb_strtoupper($this->currency)]);
+        }
+
+        $event = $this->route('event');
+
+        if ($this->has('sales_start') && empty($this->sales_start)) {
+            $this->merge(['sales_start' => now()->toIso8601String()]);
+        }
+
+        if ($this->has('sales_end') && empty($this->sales_end) && $event !== null) {
+            $this->merge(['sales_end' => $event->starts_at->toIso8601String()]);
         }
     }
 

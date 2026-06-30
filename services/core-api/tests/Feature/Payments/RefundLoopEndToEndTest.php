@@ -202,7 +202,7 @@ class RefundLoopEndToEndTest extends TestCase
 
     public function test_full_refund_loop_success_settles_reversal_ledger_voids_tickets_and_queues_confirmation(): void
     {
-        ['order' => $order, 'attendee' => $attendee] = $this->paidOrderScenario(quantity: 2, price: 50_000);
+        ['order' => $order, 'attendee' => $attendee, 'ticketType' => $ticketType] = $this->paidOrderScenario(quantity: 2, price: 50_000);
 
         // STEP 1 — attendee requests the refund (real endpoint, real policy decision).
         $refund = $this->requestRefund($attendee, $order);
@@ -233,6 +233,8 @@ class RefundLoopEndToEndTest extends TestCase
         $this->assertSame(OrderStatus::Refunded, $order->fresh()->status);
         $this->assertSame(2, Ticket::query()->where('order_id', $order->id)->where('status', TicketStatus::Refunded->value)->count());
         $this->assertSame(0, Ticket::query()->where('order_id', $order->id)->where('status', TicketStatus::Valid->value)->count());
+        // Inventory returned: quantity_sold decremented so seats are resellable (ADR-37).
+        $this->assertSame(0, $ticketType->fresh()->quantity_sold);
 
         // Signed reversal: −100k refund (sale reversal) + +10k commission (platform earns nothing on refund).
         $reversal = LedgerEntry::query()->where('subject_id', $refund->id)->where('entry_type', LedgerEntryType::Refund->value)->sole();
@@ -378,6 +380,96 @@ class RefundLoopEndToEndTest extends TestCase
             ->where('subject_id', $refund->id)
             ->where('entry_type', LedgerEntryType::Commission->value)->sole();
         $this->assertSame(10_000, $commission->amount); // positive: platform returns its commission share
+
+        Queue::assertPushed(SendRefundConfirmationJob::class, 1);
+    }
+
+    /**
+     * ADR-37 regression — 24–48h (50% money-back) path through the full refund loop.
+     *
+     * Policy refunds 50% of the ticket price (event starts in the 24–48h window). Even though only
+     * half the money is returned the behaviour must be:
+     *   - Tickets VOIDED  — the attendee is cancelling; policy % governs money, not ticket fate.
+     *   - quantity_sold DECREMENTED  — seats return to inventory for immediate resale.
+     *   - Order → `partially_refunded`  — money-based (50k refunded < 100k total).
+     *   - Reversal ledger nets at the 50k amount (−50k refund, +5k commission).
+     */
+    public function test_fifty_percent_policy_refund_voids_tickets_returns_inventory_and_marks_partially_refunded(): void
+    {
+        $attendee = Attendee::factory()->create();
+
+        $event = Event::factory()->published()->create([
+            'starts_at' => Carbon::now()->addHours(36), // 24–48h window → 50% policy
+        ]);
+        $ticketType = TicketType::factory()->forEvent($event)->create([
+            'price' => 50_000, 'currency' => 'BDT', 'quantity_total' => 100, 'quantity_sold' => 2,
+        ]);
+
+        $total = 100_000; // 2 × 50_000
+        $order = Order::factory()->paid()->create([
+            'attendee_id' => $attendee->id,
+            'total' => $total,
+            'currency' => 'BDT',
+            'commission_rate' => '0.1000',
+        ]);
+        $item = OrderItem::create([
+            'order_id' => $order->id,
+            'ticket_type_id' => $ticketType->id,
+            'quantity' => 2,
+            'unit_price' => 50_000,
+        ]);
+        for ($i = 0; $i < 2; $i++) {
+            Ticket::create([
+                'order_id' => $order->id,
+                'order_item_id' => $item->id,
+                'ticket_type_id' => $ticketType->id,
+                'qr_code' => 'TKT-50pct-'.Str::lower((string) Str::ulid()),
+                'status' => TicketStatus::Valid->value,
+            ]);
+        }
+        Payment::factory()->create([
+            'order_id' => $order->id,
+            'external_ref' => self::CHARGE_REF,
+            'status' => PaymentStatus::Succeeded->value,
+            'amount' => $total,
+            'currency' => 'BDT',
+        ]);
+
+        // STEP 1 — attendee requests refund in the 50% window (real endpoint, real policy decision).
+        $refund = $this->requestRefund($attendee, $order);
+        Queue::assertPushed(ExecuteRefundJob::class);
+
+        // Policy applied 50%: refund amount is exactly half the order total.
+        $this->assertSame('50', $refund->fresh()->policy_applied);
+        $this->assertSame(50_000, (int) $refund->fresh()->amount);
+
+        // STEP 2 — execution job calls payment-service with the 50k amount.
+        $this->fakeRefundAccepted();
+        $this->runRefundJob($refund->id);
+        $this->assertSame(RefundStatus::Pending, $refund->fresh()->status);
+
+        // STEP 3 — signed success webhook arrives (50k amount confirmed by payment-service).
+        $this->deliverRefundWebhook($this->webhookPayload($order, $refund->fresh()))
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertSame(RefundStatus::Completed, $refund->fresh()->status);
+
+        // Tickets VOIDED — attendee is cancelling; policy % governs money, not ticket fate (ADR-37).
+        $this->assertSame(2, Ticket::query()->where('order_id', $order->id)->where('status', TicketStatus::Refunded->value)->count());
+        $this->assertSame(0, Ticket::query()->where('order_id', $order->id)->where('status', TicketStatus::Valid->value)->count());
+
+        // Inventory returned: seats resellable even though only 50% of the money was returned.
+        $this->assertSame(0, $ticketType->fresh()->quantity_sold);
+
+        // Order: partially_refunded because MONEY refunded (50k) < order total (100k).
+        $this->assertSame(OrderStatus::PartiallyRefunded, $order->fresh()->status);
+
+        // Reversal ledger nets at the 50k amount: −50k refund reversal + +5k commission (10% of 50k).
+        $reversal = LedgerEntry::query()->where('subject_id', $refund->id)->where('entry_type', LedgerEntryType::Refund->value)->sole();
+        $commission = LedgerEntry::query()->where('subject_id', $refund->id)->where('entry_type', LedgerEntryType::Commission->value)->sole();
+        $this->assertSame(-50_000, $reversal->amount);
+        $this->assertSame(5_000, $commission->amount);
 
         Queue::assertPushed(SendRefundConfirmationJob::class, 1);
     }

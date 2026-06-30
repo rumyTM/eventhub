@@ -27,7 +27,7 @@
             </style>
 
     <script>
-        var tryItOutBaseUrl = "http://localhost";
+        var tryItOutBaseUrl = "http://localhost:8000";
         var useCsrf = Boolean();
         var csrfUrl = "/sanctum/csrf-cookie";
     </script>
@@ -193,6 +193,12 @@
                                                                             <li class="tocify-item level-3" data-unique="attendee-POSTapi-v1-orders">
                                             <a href="#attendee-POSTapi-v1-orders">Checkout</a>
                                         </li>
+                                                                            <li class="tocify-item level-3" data-unique="attendee-GETapi-v1-orders">
+                                            <a href="#attendee-GETapi-v1-orders">List orders</a>
+                                        </li>
+                                                                            <li class="tocify-item level-3" data-unique="attendee-GETapi-v1-orders--id-">
+                                            <a href="#attendee-GETapi-v1-orders--id-">Get order</a>
+                                        </li>
                                                                     </ul>
                                                                                 <li class="tocify-item level-2" data-unique="attendee-refunds">
                                 <a href="#attendee-refunds">Refunds</a>
@@ -274,7 +280,7 @@
         <h1 id="introduction">Introduction</h1>
 <p>REST API for the EventHub multi-vendor event ticketing and payout platform. Vendors create events and sell tickets; attendees browse and buy; admins approve vendors, manage refunds, and disburse payouts. Every financial operation is auditable, idempotent, and resilient to partial failure.</p>
 <aside>
-    <strong>Base URL</strong>: <code>http://localhost</code>
+    <strong>Base URL</strong>: <code>http://localhost:8000</code>
 </aside>
 <h2 id="authentication">Authentication</h2>
 <p>Most write endpoints and all admin endpoints require a Sanctum <strong>bearer token</strong>.
@@ -350,7 +356,7 @@ Admin accounts are provisioned via seeder only — the <code>admin</code> role i
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/auth/register" \
+    "http://localhost:8000/api/v1/auth/register" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
     --data "{
@@ -367,7 +373,7 @@ Admin accounts are provisioned via seeder only — the <code>admin</code> role i
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/auth/register"
+    "http://localhost:8000/api/v1/auth/register"
 );
 
 const headers = {
@@ -394,7 +400,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/auth/register';
+$url = 'http://localhost:8000/api/v1/auth/register';
 $response = $client-&gt;post(
     $url,
     [
@@ -616,7 +622,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/auth/login" \
+    "http://localhost:8000/api/v1/auth/login" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
     --data "{
@@ -628,7 +634,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/auth/login"
+    "http://localhost:8000/api/v1/auth/login"
 );
 
 const headers = {
@@ -650,7 +656,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/auth/login';
+$url = 'http://localhost:8000/api/v1/auth/login';
 $response = $client-&gt;post(
     $url,
     [
@@ -820,14 +826,14 @@ draft/ongoing events; admins see all events regardless of status.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request GET \
-    --get "http://localhost/api/v1/events" \
+    --get "http://localhost:8000/api/v1/events" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
 
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events"
+    "http://localhost:8000/api/v1/events"
 );
 
 const headers = {
@@ -844,7 +850,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events';
+$url = 'http://localhost:8000/api/v1/events';
 $response = $client-&gt;get(
     $url,
     [
@@ -986,14 +992,14 @@ draft/cancelled events are visible only to their owner vendor or an admin.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request GET \
-    --get "http://localhost/api/v1/events/architecto" \
+    --get "http://localhost:8000/api/v1/events/architecto" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
 
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events/architecto"
+    "http://localhost:8000/api/v1/events/architecto"
 );
 
 const headers = {
@@ -1010,7 +1016,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events/architecto';
+$url = 'http://localhost:8000/api/v1/events/architecto';
 $response = $client-&gt;get(
     $url,
     [
@@ -1189,14 +1195,14 @@ Requires the same visibility as the parent event (published events are public).<
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request GET \
-    --get "http://localhost/api/v1/events/architecto/ticket-types" \
+    --get "http://localhost:8000/api/v1/events/architecto/ticket-types" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
 
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events/architecto/ticket-types"
+    "http://localhost:8000/api/v1/events/architecto/ticket-types"
 );
 
 const headers = {
@@ -1213,7 +1219,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events/architecto/ticket-types';
+$url = 'http://localhost:8000/api/v1/events/architecto/ticket-types';
 $response = $client-&gt;get(
     $url,
     [
@@ -1368,14 +1374,14 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request GET \
-    --get "http://localhost/api/v1/events/architecto/ticket-types/architecto" \
+    --get "http://localhost:8000/api/v1/events/architecto/ticket-types/architecto" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
 
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events/architecto/ticket-types/architecto"
+    "http://localhost:8000/api/v1/events/architecto/ticket-types/architecto"
 );
 
 const headers = {
@@ -1392,7 +1398,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events/architecto/ticket-types/architecto';
+$url = 'http://localhost:8000/api/v1/events/architecto/ticket-types/architecto';
 $response = $client-&gt;get(
     $url,
     [
@@ -1551,14 +1557,14 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request GET \
-    --get "http://localhost/api/v1/health" \
+    --get "http://localhost:8000/api/v1/health" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
 
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/health"
+    "http://localhost:8000/api/v1/health"
 );
 
 const headers = {
@@ -1575,7 +1581,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/health';
+$url = 'http://localhost:8000/api/v1/health';
 $response = $client-&gt;get(
     $url,
     [
@@ -1698,7 +1704,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/auth/logout" \
+    "http://localhost:8000/api/v1/auth/logout" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
@@ -1706,7 +1712,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/auth/logout"
+    "http://localhost:8000/api/v1/auth/logout"
 );
 
 const headers = {
@@ -1724,7 +1730,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/auth/logout';
+$url = 'http://localhost:8000/api/v1/auth/logout';
 $response = $client-&gt;post(
     $url,
     [
@@ -1841,7 +1847,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request GET \
-    --get "http://localhost/api/v1/auth/me" \
+    --get "http://localhost:8000/api/v1/auth/me" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
@@ -1849,7 +1855,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/auth/me"
+    "http://localhost:8000/api/v1/auth/me"
 );
 
 const headers = {
@@ -1867,7 +1873,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/auth/me';
+$url = 'http://localhost:8000/api/v1/auth/me';
 $response = $client-&gt;get(
     $url,
     [
@@ -2013,7 +2019,7 @@ The vendor must be KYC-verified before the event can be published.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/events" \
+    "http://localhost:8000/api/v1/events" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -2030,7 +2036,7 @@ The vendor must be KYC-verified before the event can be published.</p>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events"
+    "http://localhost:8000/api/v1/events"
 );
 
 const headers = {
@@ -2057,7 +2063,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events';
+$url = 'http://localhost:8000/api/v1/events';
 $response = $client-&gt;post(
     $url,
     [
@@ -2258,7 +2264,7 @@ the event lifecycle policy (e.g. vendor must be KYC-verified to publish).</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request PUT \
-    "http://localhost/api/v1/events/architecto" \
+    "http://localhost:8000/api/v1/events/architecto" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -2276,7 +2282,7 @@ the event lifecycle policy (e.g. vendor must be KYC-verified to publish).</p>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events/architecto"
+    "http://localhost:8000/api/v1/events/architecto"
 );
 
 const headers = {
@@ -2304,7 +2310,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events/architecto';
+$url = 'http://localhost:8000/api/v1/events/architecto';
 $response = $client-&gt;put(
     $url,
     [
@@ -2533,7 +2539,7 @@ Must be one of:
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request DELETE \
-    "http://localhost/api/v1/events/architecto" \
+    "http://localhost:8000/api/v1/events/architecto" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
@@ -2541,7 +2547,7 @@ Must be one of:
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events/architecto"
+    "http://localhost:8000/api/v1/events/architecto"
 );
 
 const headers = {
@@ -2559,7 +2565,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events/architecto';
+$url = 'http://localhost:8000/api/v1/events/architecto';
 $response = $client-&gt;delete(
     $url,
     [
@@ -2690,7 +2696,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/events/architecto/ticket-types" \
+    "http://localhost:8000/api/v1/events/architecto/ticket-types" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -2707,7 +2713,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events/architecto/ticket-types"
+    "http://localhost:8000/api/v1/events/architecto/ticket-types"
 );
 
 const headers = {
@@ -2734,7 +2740,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events/architecto/ticket-types';
+$url = 'http://localhost:8000/api/v1/events/architecto/ticket-types';
 $response = $client-&gt;post(
     $url,
     [
@@ -2971,7 +2977,7 @@ Must be one of:
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request PUT \
-    "http://localhost/api/v1/events/architecto/ticket-types/architecto" \
+    "http://localhost:8000/api/v1/events/architecto/ticket-types/architecto" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -2988,7 +2994,7 @@ Must be one of:
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events/architecto/ticket-types/architecto"
+    "http://localhost:8000/api/v1/events/architecto/ticket-types/architecto"
 );
 
 const headers = {
@@ -3015,7 +3021,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events/architecto/ticket-types/architecto';
+$url = 'http://localhost:8000/api/v1/events/architecto/ticket-types/architecto';
 $response = $client-&gt;put(
     $url,
     [
@@ -3264,7 +3270,7 @@ Must be one of:
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request DELETE \
-    "http://localhost/api/v1/events/architecto/ticket-types/architecto" \
+    "http://localhost:8000/api/v1/events/architecto/ticket-types/architecto" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
@@ -3272,7 +3278,7 @@ Must be one of:
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/events/architecto/ticket-types/architecto"
+    "http://localhost:8000/api/v1/events/architecto/ticket-types/architecto"
 );
 
 const headers = {
@@ -3290,7 +3296,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/events/architecto/ticket-types/architecto';
+$url = 'http://localhost:8000/api/v1/events/architecto/ticket-types/architecto';
 $response = $client-&gt;delete(
     $url,
     [
@@ -3435,7 +3441,7 @@ Only <code>pending</code> and <code>rejected</code> vendors may re-submit.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/vendor/kyc" \
+    "http://localhost:8000/api/v1/vendor/kyc" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -3452,7 +3458,7 @@ Only <code>pending</code> and <code>rejected</code> vendors may re-submit.</p>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/vendor/kyc"
+    "http://localhost:8000/api/v1/vendor/kyc"
 );
 
 const headers = {
@@ -3479,7 +3485,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/vendor/kyc';
+$url = 'http://localhost:8000/api/v1/vendor/kyc';
 $response = $client-&gt;post(
     $url,
     [
@@ -3649,7 +3655,7 @@ the existing order without creating a second charge.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/orders" \
+    "http://localhost:8000/api/v1/orders" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Idempotency-Key: string required A unique key (UUID recommended) to make this request idempotent. Example: 550e8400-e29b-41d4-a716-446655440000" \
     --header "Content-Type: application/json" \
@@ -3668,7 +3674,7 @@ the existing order without creating a second charge.</p>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/orders"
+    "http://localhost:8000/api/v1/orders"
 );
 
 const headers = {
@@ -3697,7 +3703,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/orders';
+$url = 'http://localhost:8000/api/v1/orders';
 $response = $client-&gt;post(
     $url,
     [
@@ -3926,6 +3932,435 @@ You can check the Dev Tools console for debugging information.</code></pre>
         </div>
         </form>
 
+                    <h2 id="attendee-GETapi-v1-orders">List orders</h2>
+
+<p>
+<small class="badge badge-darkred">requires authentication</small>
+</p>
+
+<p>Returns a paginated list of orders. Attendees see only their own orders;
+admins see all orders and can filter them by status (e.g. for the dispute queue).</p>
+
+<span id="example-requests-GETapi-v1-orders">
+<blockquote>Example request:</blockquote>
+
+
+<div class="bash-example">
+    <pre><code class="language-bash">curl --request GET \
+    --get "http://localhost:8000/api/v1/orders?status=paid&amp;per_page=15" \
+    --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
+    --header "Content-Type: application/json" \
+    --header "Accept: application/json"</code></pre></div>
+
+
+<div class="javascript-example">
+    <pre><code class="language-javascript">const url = new URL(
+    "http://localhost:8000/api/v1/orders"
+);
+
+const params = {
+    "status": "paid",
+    "per_page": "15",
+};
+Object.keys(params)
+    .forEach(key =&gt; url.searchParams.append(key, params[key]));
+
+const headers = {
+    "Authorization": "Bearer {YOUR_BEARER_TOKEN}",
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+};
+
+
+fetch(url, {
+    method: "GET",
+    headers,
+}).then(response =&gt; response.json());</code></pre></div>
+
+
+<div class="php-example">
+    <pre><code class="language-php">$client = new \GuzzleHttp\Client();
+$url = 'http://localhost:8000/api/v1/orders';
+$response = $client-&gt;get(
+    $url,
+    [
+        'headers' =&gt; [
+            'Authorization' =&gt; 'Bearer {YOUR_BEARER_TOKEN}',
+            'Content-Type' =&gt; 'application/json',
+            'Accept' =&gt; 'application/json',
+        ],
+        'query' =&gt; [
+            'status' =&gt; 'paid',
+            'per_page' =&gt; '15',
+        ],
+    ]
+);
+$body = $response-&gt;getBody();
+print_r(json_decode((string) $body));</code></pre></div>
+
+</span>
+
+<span id="example-responses-GETapi-v1-orders">
+            <blockquote>
+            <p>Example response (200, Success):</p>
+        </blockquote>
+                <pre>
+
+<code class="language-json" style="max-height: 300px;">{
+    &quot;success&quot;: true,
+    &quot;message&quot;: &quot;Orders retrieved.&quot;,
+    &quot;data&quot;: {
+        &quot;orders&quot;: [
+            {
+                &quot;id&quot;: &quot;01J000000000000DEMOORDER1&quot;,
+                &quot;status&quot;: {
+                    &quot;value&quot;: &quot;paid&quot;,
+                    &quot;label&quot;: &quot;Paid&quot;
+                },
+                &quot;total&quot;: 75000,
+                &quot;currency&quot;: &quot;BDT&quot;,
+                &quot;commission_rate&quot;: &quot;0.1000&quot;,
+                &quot;created_at&quot;: &quot;2026-06-30T10:05:00Z&quot;
+            }
+        ],
+        &quot;pagination&quot;: {
+            &quot;current_page&quot;: 1,
+            &quot;per_page&quot;: 15,
+            &quot;total&quot;: 1,
+            &quot;last_page&quot;: 1
+        }
+    },
+    &quot;errors&quot;: null
+}</code>
+ </pre>
+    </span>
+<span id="execution-results-GETapi-v1-orders" hidden>
+    <blockquote>Received response<span
+                id="execution-response-status-GETapi-v1-orders"></span>:
+    </blockquote>
+    <pre class="json"><code id="execution-response-content-GETapi-v1-orders"
+      data-empty-response-text="<Empty response>" style="max-height: 400px;"></code></pre>
+</span>
+<span id="execution-error-GETapi-v1-orders" hidden>
+    <blockquote>Request failed with error:</blockquote>
+    <pre><code id="execution-error-message-GETapi-v1-orders">
+
+Tip: Check that you&#039;re properly connected to the network.
+If you&#039;re a maintainer of ths API, verify that your API is running and you&#039;ve enabled CORS.
+You can check the Dev Tools console for debugging information.</code></pre>
+</span>
+<form id="form-GETapi-v1-orders" data-method="GET"
+      data-path="api/v1/orders"
+      data-authed="1"
+      data-hasfiles="0"
+      data-isarraybody="0"
+      autocomplete="off"
+      onsubmit="event.preventDefault(); executeTryOut('GETapi-v1-orders', this);">
+    <h3>
+        Request&nbsp;&nbsp;&nbsp;
+                    <button type="button"
+                    style="background-color: #8fbcd4; padding: 5px 10px; border-radius: 5px; border-width: thin;"
+                    id="btn-tryout-GETapi-v1-orders"
+                    onclick="tryItOut('GETapi-v1-orders');">Try it out ⚡
+            </button>
+            <button type="button"
+                    style="background-color: #c97a7e; padding: 5px 10px; border-radius: 5px; border-width: thin;"
+                    id="btn-canceltryout-GETapi-v1-orders"
+                    onclick="cancelTryOut('GETapi-v1-orders');" hidden>Cancel 🛑
+            </button>&nbsp;&nbsp;
+            <button type="submit"
+                    style="background-color: #6ac174; padding: 5px 10px; border-radius: 5px; border-width: thin;"
+                    id="btn-executetryout-GETapi-v1-orders"
+                    data-initial-text="Send Request 💥"
+                    data-loading-text="⏱ Sending..."
+                    hidden>Send Request 💥
+            </button>
+            </h3>
+            <p>
+            <small class="badge badge-green">GET</small>
+            <b><code>api/v1/orders</code></b>
+        </p>
+                <h4 class="fancy-heading-panel"><b>Headers</b></h4>
+                                <div style="padding-left: 28px; clear: unset;">
+                <b style="line-height: 2;"><code>Authorization</code></b>&nbsp;&nbsp;
+&nbsp;
+ &nbsp;
+ &nbsp;
+                <input type="text" style="display: none"
+                              name="Authorization" class="auth-value"               data-endpoint="GETapi-v1-orders"
+               value="Bearer {YOUR_BEARER_TOKEN}"
+               data-component="header">
+    <br>
+<p>Example: <code>Bearer {YOUR_BEARER_TOKEN}</code></p>
+            </div>
+                                <div style="padding-left: 28px; clear: unset;">
+                <b style="line-height: 2;"><code>Content-Type</code></b>&nbsp;&nbsp;
+&nbsp;
+ &nbsp;
+ &nbsp;
+                <input type="text" style="display: none"
+                              name="Content-Type"                data-endpoint="GETapi-v1-orders"
+               value="application/json"
+               data-component="header">
+    <br>
+<p>Example: <code>application/json</code></p>
+            </div>
+                                <div style="padding-left: 28px; clear: unset;">
+                <b style="line-height: 2;"><code>Accept</code></b>&nbsp;&nbsp;
+&nbsp;
+ &nbsp;
+ &nbsp;
+                <input type="text" style="display: none"
+                              name="Accept"                data-endpoint="GETapi-v1-orders"
+               value="application/json"
+               data-component="header">
+    <br>
+<p>Example: <code>application/json</code></p>
+            </div>
+                            <h4 class="fancy-heading-panel"><b>Query Parameters</b></h4>
+                                    <div style="padding-left: 28px; clear: unset;">
+                <b style="line-height: 2;"><code>status</code></b>&nbsp;&nbsp;
+<small>string</small>&nbsp;
+<i>optional</i> &nbsp;
+ &nbsp;
+                <input type="text" style="display: none"
+                              name="status"                data-endpoint="GETapi-v1-orders"
+               value="paid"
+               data-component="query">
+    <br>
+<p>Filter orders by status (e.g. pending, paid, refunded). Example: <code>paid</code></p>
+Must be one of:
+<ul style="list-style-type: square;"><li><code>pending</code></li> <li><code>paid</code></li> <li><code>partially_refunded</code></li> <li><code>refunded</code></li> <li><code>expired</code></li> <li><code>failed</code></li> <li><code>cancelled</code></li></ul>
+            </div>
+                                    <div style="padding-left: 28px; clear: unset;">
+                <b style="line-height: 2;"><code>per_page</code></b>&nbsp;&nbsp;
+<small>integer</small>&nbsp;
+<i>optional</i> &nbsp;
+ &nbsp;
+                <input type="number" style="display: none"
+               step="any"               name="per_page"                data-endpoint="GETapi-v1-orders"
+               value="15"
+               data-component="query">
+    <br>
+<p>Number of items per page. Must be at least 1. Must not be greater than 100. Example: <code>15</code></p>
+            </div>
+                </form>
+
+                    <h2 id="attendee-GETapi-v1-orders--id-">Get order</h2>
+
+<p>
+<small class="badge badge-darkred">requires authentication</small>
+</p>
+
+<p>Retrieve a single order with its items and holds. Attendees can only view
+their own orders; admins can view any order.</p>
+
+<span id="example-requests-GETapi-v1-orders--id-">
+<blockquote>Example request:</blockquote>
+
+
+<div class="bash-example">
+    <pre><code class="language-bash">curl --request GET \
+    --get "http://localhost:8000/api/v1/orders/architecto" \
+    --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
+    --header "Content-Type: application/json" \
+    --header "Accept: application/json"</code></pre></div>
+
+
+<div class="javascript-example">
+    <pre><code class="language-javascript">const url = new URL(
+    "http://localhost:8000/api/v1/orders/architecto"
+);
+
+const headers = {
+    "Authorization": "Bearer {YOUR_BEARER_TOKEN}",
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+};
+
+
+fetch(url, {
+    method: "GET",
+    headers,
+}).then(response =&gt; response.json());</code></pre></div>
+
+
+<div class="php-example">
+    <pre><code class="language-php">$client = new \GuzzleHttp\Client();
+$url = 'http://localhost:8000/api/v1/orders/architecto';
+$response = $client-&gt;get(
+    $url,
+    [
+        'headers' =&gt; [
+            'Authorization' =&gt; 'Bearer {YOUR_BEARER_TOKEN}',
+            'Content-Type' =&gt; 'application/json',
+            'Accept' =&gt; 'application/json',
+        ],
+    ]
+);
+$body = $response-&gt;getBody();
+print_r(json_decode((string) $body));</code></pre></div>
+
+</span>
+
+<span id="example-responses-GETapi-v1-orders--id-">
+            <blockquote>
+            <p>Example response (200, Success):</p>
+        </blockquote>
+                <pre>
+
+<code class="language-json" style="max-height: 300px;">{
+    &quot;success&quot;: true,
+    &quot;message&quot;: &quot;Order retrieved.&quot;,
+    &quot;data&quot;: {
+        &quot;order&quot;: {
+            &quot;id&quot;: &quot;01J000000000000DEMOORDER1&quot;,
+            &quot;status&quot;: {
+                &quot;value&quot;: &quot;paid&quot;,
+                &quot;label&quot;: &quot;Paid&quot;
+            },
+            &quot;total&quot;: 75000,
+            &quot;currency&quot;: &quot;BDT&quot;,
+            &quot;commission_rate&quot;: &quot;0.1000&quot;,
+            &quot;items&quot;: [
+                {
+                    &quot;id&quot;: &quot;01J000000000000DEMOITEM1&quot;,
+                    &quot;ticket_type_id&quot;: &quot;01J000000000000DEMOTICKET&quot;,
+                    &quot;quantity&quot;: 3,
+                    &quot;unit_price&quot;: 25000
+                }
+            ],
+            &quot;holds&quot;: [],
+            &quot;hold_expires_at&quot;: null,
+            &quot;created_at&quot;: &quot;2026-06-30T10:05:00Z&quot;
+        }
+    },
+    &quot;errors&quot;: null
+}</code>
+ </pre>
+            <blockquote>
+            <p>Example response (403, Unauthorized):</p>
+        </blockquote>
+                <pre>
+
+<code class="language-json" style="max-height: 300px;">{
+    &quot;success&quot;: false,
+    &quot;message&quot;: &quot;This action is unauthorized.&quot;,
+    &quot;data&quot;: null,
+    &quot;errors&quot;: null
+}</code>
+ </pre>
+            <blockquote>
+            <p>Example response (404, Not Found):</p>
+        </blockquote>
+                <pre>
+
+<code class="language-json" style="max-height: 300px;">{
+    &quot;success&quot;: false,
+    &quot;message&quot;: &quot;Resource not found.&quot;,
+    &quot;data&quot;: null,
+    &quot;errors&quot;: null
+}</code>
+ </pre>
+    </span>
+<span id="execution-results-GETapi-v1-orders--id-" hidden>
+    <blockquote>Received response<span
+                id="execution-response-status-GETapi-v1-orders--id-"></span>:
+    </blockquote>
+    <pre class="json"><code id="execution-response-content-GETapi-v1-orders--id-"
+      data-empty-response-text="<Empty response>" style="max-height: 400px;"></code></pre>
+</span>
+<span id="execution-error-GETapi-v1-orders--id-" hidden>
+    <blockquote>Request failed with error:</blockquote>
+    <pre><code id="execution-error-message-GETapi-v1-orders--id-">
+
+Tip: Check that you&#039;re properly connected to the network.
+If you&#039;re a maintainer of ths API, verify that your API is running and you&#039;ve enabled CORS.
+You can check the Dev Tools console for debugging information.</code></pre>
+</span>
+<form id="form-GETapi-v1-orders--id-" data-method="GET"
+      data-path="api/v1/orders/{id}"
+      data-authed="1"
+      data-hasfiles="0"
+      data-isarraybody="0"
+      autocomplete="off"
+      onsubmit="event.preventDefault(); executeTryOut('GETapi-v1-orders--id-', this);">
+    <h3>
+        Request&nbsp;&nbsp;&nbsp;
+                    <button type="button"
+                    style="background-color: #8fbcd4; padding: 5px 10px; border-radius: 5px; border-width: thin;"
+                    id="btn-tryout-GETapi-v1-orders--id-"
+                    onclick="tryItOut('GETapi-v1-orders--id-');">Try it out ⚡
+            </button>
+            <button type="button"
+                    style="background-color: #c97a7e; padding: 5px 10px; border-radius: 5px; border-width: thin;"
+                    id="btn-canceltryout-GETapi-v1-orders--id-"
+                    onclick="cancelTryOut('GETapi-v1-orders--id-');" hidden>Cancel 🛑
+            </button>&nbsp;&nbsp;
+            <button type="submit"
+                    style="background-color: #6ac174; padding: 5px 10px; border-radius: 5px; border-width: thin;"
+                    id="btn-executetryout-GETapi-v1-orders--id-"
+                    data-initial-text="Send Request 💥"
+                    data-loading-text="⏱ Sending..."
+                    hidden>Send Request 💥
+            </button>
+            </h3>
+            <p>
+            <small class="badge badge-green">GET</small>
+            <b><code>api/v1/orders/{id}</code></b>
+        </p>
+                <h4 class="fancy-heading-panel"><b>Headers</b></h4>
+                                <div style="padding-left: 28px; clear: unset;">
+                <b style="line-height: 2;"><code>Authorization</code></b>&nbsp;&nbsp;
+&nbsp;
+ &nbsp;
+ &nbsp;
+                <input type="text" style="display: none"
+                              name="Authorization" class="auth-value"               data-endpoint="GETapi-v1-orders--id-"
+               value="Bearer {YOUR_BEARER_TOKEN}"
+               data-component="header">
+    <br>
+<p>Example: <code>Bearer {YOUR_BEARER_TOKEN}</code></p>
+            </div>
+                                <div style="padding-left: 28px; clear: unset;">
+                <b style="line-height: 2;"><code>Content-Type</code></b>&nbsp;&nbsp;
+&nbsp;
+ &nbsp;
+ &nbsp;
+                <input type="text" style="display: none"
+                              name="Content-Type"                data-endpoint="GETapi-v1-orders--id-"
+               value="application/json"
+               data-component="header">
+    <br>
+<p>Example: <code>application/json</code></p>
+            </div>
+                                <div style="padding-left: 28px; clear: unset;">
+                <b style="line-height: 2;"><code>Accept</code></b>&nbsp;&nbsp;
+&nbsp;
+ &nbsp;
+ &nbsp;
+                <input type="text" style="display: none"
+                              name="Accept"                data-endpoint="GETapi-v1-orders--id-"
+               value="application/json"
+               data-component="header">
+    <br>
+<p>Example: <code>application/json</code></p>
+            </div>
+                        <h4 class="fancy-heading-panel"><b>URL Parameters</b></h4>
+                    <div style="padding-left: 28px; clear: unset;">
+                <b style="line-height: 2;"><code>id</code></b>&nbsp;&nbsp;
+<small>string</small>&nbsp;
+ &nbsp;
+ &nbsp;
+                <input type="text" style="display: none"
+                              name="id"                data-endpoint="GETapi-v1-orders--id-"
+               value="architecto"
+               data-component="url">
+    <br>
+<p>The ID of the order. Example: <code>architecto</code></p>
+            </div>
+                    </form>
+
                                 <h2 id="attendee-refunds">Refunds</h2>
                                                     <h2 id="attendee-POSTapi-v1-orders--order_id--refund">Request refund (attendee)</h2>
 
@@ -3944,7 +4379,7 @@ dispute for admin mediation.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/orders/architecto/refund" \
+    "http://localhost:8000/api/v1/orders/architecto/refund" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -3961,7 +4396,7 @@ dispute for admin mediation.</p>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/orders/architecto/refund"
+    "http://localhost:8000/api/v1/orders/architecto/refund"
 );
 
 const headers = {
@@ -3988,7 +4423,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/orders/architecto/refund';
+$url = 'http://localhost:8000/api/v1/orders/architecto/refund';
 $response = $client-&gt;post(
     $url,
     [
@@ -4210,7 +4645,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request GET \
-    --get "http://localhost/api/v1/admin/vendors" \
+    --get "http://localhost:8000/api/v1/admin/vendors" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
@@ -4218,7 +4653,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/admin/vendors"
+    "http://localhost:8000/api/v1/admin/vendors"
 );
 
 const headers = {
@@ -4236,7 +4671,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/admin/vendors';
+$url = 'http://localhost:8000/api/v1/admin/vendors';
 $response = $client-&gt;get(
     $url,
     [
@@ -4392,7 +4827,7 @@ events and receive payouts.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/admin/vendors/architecto/verify" \
+    "http://localhost:8000/api/v1/admin/vendors/architecto/verify" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
@@ -4400,7 +4835,7 @@ events and receive payouts.</p>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/admin/vendors/architecto/verify"
+    "http://localhost:8000/api/v1/admin/vendors/architecto/verify"
 );
 
 const headers = {
@@ -4418,7 +4853,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/admin/vendors/architecto/verify';
+$url = 'http://localhost:8000/api/v1/admin/vendors/architecto/verify';
 $response = $client-&gt;post(
     $url,
     [
@@ -4549,7 +4984,7 @@ The vendor may re-submit after addressing the stated issues.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/admin/vendors/architecto/reject" \
+    "http://localhost:8000/api/v1/admin/vendors/architecto/reject" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -4561,7 +4996,7 @@ The vendor may re-submit after addressing the stated issues.</p>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/admin/vendors/architecto/reject"
+    "http://localhost:8000/api/v1/admin/vendors/architecto/reject"
 );
 
 const headers = {
@@ -4583,7 +5018,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/admin/vendors/architecto/reject';
+$url = 'http://localhost:8000/api/v1/admin/vendors/architecto/reject';
 $response = $client-&gt;post(
     $url,
     [
@@ -4732,7 +5167,7 @@ Idempotent: replaying the same order returns the existing open refund.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/admin/orders/architecto/refund" \
+    "http://localhost:8000/api/v1/admin/orders/architecto/refund" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -4750,7 +5185,7 @@ Idempotent: replaying the same order returns the existing open refund.</p>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/admin/orders/architecto/refund"
+    "http://localhost:8000/api/v1/admin/orders/architecto/refund"
 );
 
 const headers = {
@@ -4778,7 +5213,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/admin/orders/architecto/refund';
+$url = 'http://localhost:8000/api/v1/admin/orders/architecto/refund';
 $response = $client-&gt;post(
     $url,
     [
@@ -4940,7 +5375,7 @@ You can check the Dev Tools console for debugging information.</code></pre>
     <br>
 <p>Example: <code>event_cancelled</code></p>
 Must be one of:
-<ul style="list-style-type: square;"><li><code>attendee_requested</code></li> <li><code>event_cancelled</code></li></ul>
+<ul style="list-style-type: square;"><li><code>attendee_requested</code></li> <li><code>event_cancelled</code></li> <li><code>late_payment</code></li></ul>
         </div>
                 <div style=" padding-left: 28px;  clear: unset;">
         <details>
@@ -4995,7 +5430,7 @@ Must be one of:
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request GET \
-    --get "http://localhost/api/v1/admin/payouts" \
+    --get "http://localhost:8000/api/v1/admin/payouts" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -5009,7 +5444,7 @@ Must be one of:
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/admin/payouts"
+    "http://localhost:8000/api/v1/admin/payouts"
 );
 
 const headers = {
@@ -5033,7 +5468,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/admin/payouts';
+$url = 'http://localhost:8000/api/v1/admin/payouts';
 $response = $client-&gt;get(
     $url,
     [
@@ -5234,7 +5669,7 @@ Call <code>/admin/payouts/{payout}/execute</code> to actually disburse. Idempote
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/admin/payouts/build" \
+    "http://localhost:8000/api/v1/admin/payouts/build" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
@@ -5247,7 +5682,7 @@ Call <code>/admin/payouts/{payout}/execute</code> to actually disburse. Idempote
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/admin/payouts/build"
+    "http://localhost:8000/api/v1/admin/payouts/build"
 );
 
 const headers = {
@@ -5270,7 +5705,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/admin/payouts/build';
+$url = 'http://localhost:8000/api/v1/admin/payouts/build';
 $response = $client-&gt;post(
     $url,
     [
@@ -5450,7 +5885,7 @@ reuses the deterministic idempotency key.</p>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request POST \
-    "http://localhost/api/v1/admin/payouts/architecto/execute" \
+    "http://localhost:8000/api/v1/admin/payouts/architecto/execute" \
     --header "Authorization: Bearer {YOUR_BEARER_TOKEN}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
@@ -5458,7 +5893,7 @@ reuses the deterministic idempotency key.</p>
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/admin/payouts/architecto/execute"
+    "http://localhost:8000/api/v1/admin/payouts/architecto/execute"
 );
 
 const headers = {
@@ -5476,7 +5911,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/admin/payouts/architecto/execute';
+$url = 'http://localhost:8000/api/v1/admin/payouts/architecto/execute';
 $response = $client-&gt;post(
     $url,
     [
@@ -5646,14 +6081,14 @@ You can check the Dev Tools console for debugging information.</code></pre>
 
 <div class="bash-example">
     <pre><code class="language-bash">curl --request GET \
-    --get "http://localhost/api/v1/admin/ping" \
+    --get "http://localhost:8000/api/v1/admin/ping" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json"</code></pre></div>
 
 
 <div class="javascript-example">
     <pre><code class="language-javascript">const url = new URL(
-    "http://localhost/api/v1/admin/ping"
+    "http://localhost:8000/api/v1/admin/ping"
 );
 
 const headers = {
@@ -5670,7 +6105,7 @@ fetch(url, {
 
 <div class="php-example">
     <pre><code class="language-php">$client = new \GuzzleHttp\Client();
-$url = 'http://localhost/api/v1/admin/ping';
+$url = 'http://localhost:8000/api/v1/admin/ping';
 $response = $client-&gt;get(
     $url,
     [

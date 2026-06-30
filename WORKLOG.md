@@ -6,6 +6,42 @@
 
 ---
 
+## 2026-06-30 — Day 5 (Patch): Refund inventory accounting fix + payout panel bugs + test regression lock-in
+**Maps to:** PLAN.md Day 5 — hardening & verification. `services/core-api/CLAUDE.md` §F/§I.
+
+**What changed (`services/core-api`)**
+- **`TicketTypeRepositoryInterface`** — added `decrementSold(string $id, int $by): void` contract.
+- **`TicketTypeRepository`** — implemented `decrementSold` using plain `decrement()` (cross-database; no `GREATEST()` — see decision below).
+- **`ProcessRefundWebhookService::voidTicketsAndUpdateOrder()`** — rewrote to always (1) void all valid tickets, (2) call `decrementSold` per order item regardless of money-back percentage. Order status (`refunded` vs `partially_refunded`) is money-based only. Implements ADR-37.
+- **`PayoutRepository::list()`** — added `->with('vendor:id,business_name')` eager load so the payout admin panel can show the vendor business name without an N+1.
+- **`PayoutResource`** — added `'vendor' => $this->whenLoaded('vendor', ...)` returning `{ business_name }`.
+
+**What changed (`frontend`)**
+- **`lib/api/types.ts`** — added `vendor?: { business_name: string }` to `Payout` interface; corrected `build()` return type to `{ batch_id: string; count: number; payouts: Payout[] }`.
+- **`lib/api/payouts.ts`** — fixed `build()` return type (was `{ payouts_created: number }`).
+- **`app/(admin)/admin/payouts/page.tsx`** — fixed vendor column (`p.vendor_id.slice(-8)` → `p.vendor?.business_name ?? p.vendor_id`); fixed toast (`res.payouts_created` → `res.count`).
+
+**Tests updated (`services/core-api/tests/`)**
+- **`RefundWebhookTest`** — added `quantity_sold = 0` assertion to the 100% refund path; renamed and rewrote the partial-refund test to assert tickets are voided and inventory returned (was asserting tickets remained valid — wrong per ADR-37).
+- **`RefundLoopEndToEndTest`** — added `quantity_sold = 0` assertion to the existing 100% e2e loop; added `test_fifty_percent_policy_refund_voids_tickets_returns_inventory_and_marks_partially_refunded` driving the full 24–48h window path (requestRefund → runRefundJob → deliverRefundWebhook) and asserting policy=50, amount=50 000, tickets refunded, `quantity_sold=0`, order `partially_refunded`, and −50k/+5k ledger net.
+
+**Decisions**
+- **`decrement()` over `DB::raw("GREATEST(0, ...)")`** — `GREATEST()` is MySQL-only; tests run on SQLite. Replay safety comes from the idempotency guard in `handle()` (`lockOpenForOrder` returns null on replay, skipping the entire settlement block), so `decrementSold` is never called twice for the same refund. The floor is redundant; `decrement()` is simpler and portable.
+- **ADR-37 confirmed:** ticket fate (always voided) is independent of money-back percentage. The `partially_refunded` status is money-based only — not ticket-based.
+
+**Verification**
+- `php artisan test --filter=Refund` — **53 passed, 0 failed**.
+- `php artisan test` (full suite) — **251 passed, 0 failed**.
+
+**Finding (not fixed — flagged for follow-up)**
+- `RefundService.php` lines 56–58 have **no guard against `checked_in` tickets**. A refund can currently be requested on an order where tickets are already consumed; `decrementSold` would return consumed seats to inventory incorrectly. ADR-37 follow-up #2 — add checked-in guard before calling `RefundService::request()`.
+
+**Next**
+- Add checked-in guard to `RefundService` (ADR-37 follow-up #2).
+- Commit this patch: `:white_check_mark: Lock in refund inventory accounting + 50%-policy regression test` (pending explicit user approval).
+
+---
+
 ## 2026-06-29 — Day 4 (Slice 4): Next.js 14 frontend — full three-role UI, typed API client, Dockerfile
 **Maps to:** PLAN.md Day 4 — frontend build (attendee + vendor + admin areas). `frontend/CLAUDE.md` §B–§E.
 

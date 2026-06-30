@@ -40,7 +40,7 @@ export default function EventDetailPage({ params }: { params: { id: string } }) 
       return ordersApi.checkout(items, generateIdempotencyKey());
     },
     onSuccess: ({ order }) => {
-      toast.success("Checkout started! Completing payment…");
+      toast.success("Order created! Proceed to complete your payment.");
       router.push(`/checkout/${order.id}`);
     },
     onError: (err) => {
@@ -65,6 +65,13 @@ export default function EventDetailPage({ params }: { params: { id: string } }) 
   }, 0);
 
   const isPurchasable = evt.status.value === "published" || evt.status.value === "ongoing";
+
+  function isSalesOpen(tt: (typeof ticketTypes)[number]): boolean {
+    const now = new Date();
+    if (tt.sales_start && new Date(tt.sales_start) > now) return false;
+    if (tt.sales_end && new Date(tt.sales_end) < now) return false;
+    return true;
+  }
 
   return (
     <div className="space-y-6">
@@ -105,17 +112,22 @@ export default function EventDetailPage({ params }: { params: { id: string } }) 
                           Sales: {formatDate(tt.sales_start)} – {formatDate(tt.sales_end)}
                         </p>
                       )}
+                      {tt.group_size && tt.group_discount && (
+                        <p className="text-xs text-green-600 font-medium">
+                          Group of {tt.group_size}+: {Math.round(tt.group_discount * 100)}% off
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <Button
                         variant="outline" size="icon"
-                        disabled={qty <= 0 || !isPurchasable}
+                        disabled={qty <= 0 || !isPurchasable || !isSalesOpen(tt)}
                         onClick={() => setQuantities((q) => ({ ...q, [tt.id]: Math.max(0, (q[tt.id] ?? 0) - 1) }))}
                       >−</Button>
                       <span className="w-6 text-center font-medium">{qty}</span>
                       <Button
                         variant="outline" size="icon"
-                        disabled={qty >= available || !isPurchasable}
+                        disabled={qty >= available || !isPurchasable || !isSalesOpen(tt)}
                         onClick={() => setQuantities((q) => ({ ...q, [tt.id]: Math.min(available, (q[tt.id] ?? 0) + 1) }))}
                       >+</Button>
                     </div>

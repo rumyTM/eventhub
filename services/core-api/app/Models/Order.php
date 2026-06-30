@@ -3,12 +3,15 @@
 namespace App\Models;
 
 use App\Enums\OrderStatus;
+use App\Enums\RefundStatus;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 
 class Order extends Model
 {
@@ -58,6 +61,35 @@ class Order extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function latestPayment(): HasOne
+    {
+        return $this->hasOne(Payment::class)->latestOfMany();
+    }
+
+    public function latestOpenRefund(): HasOneThrough
+    {
+        return $this->hasOneThrough(
+            Refund::class,
+            Payment::class,
+            'order_id',   // FK on payments → orders
+            'payment_id', // FK on refunds → payments
+            'id',
+            'id',
+        )->whereIn('refunds.status', [RefundStatus::Requested->value, RefundStatus::Pending->value]);
+    }
+
+    public function latestRefund(): HasOneThrough
+    {
+        return $this->hasOneThrough(
+            Refund::class,
+            Payment::class,
+            'order_id',
+            'payment_id',
+            'id',
+            'id',
+        )->latest('refunds.created_at');
     }
 
     public function tickets(): HasMany

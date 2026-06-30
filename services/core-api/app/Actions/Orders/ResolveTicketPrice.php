@@ -26,10 +26,14 @@ final class ResolveTicketPrice
         $price = (int) $ticketType->price;
         $groupSize = $ticketType->group_size;
 
-        // group_discount is a 4-dp decimal (string from the DB); convert to basis points (0..9999).
-        $basisPoints = $ticketType->group_discount !== null
-            ? (int) round((float) $ticketType->group_discount * 10000)
-            : 0;
+        // group_discount is a 4-dp decimal string from the DB (e.g. "0.3333"). Convert to basis points
+        // via string parsing — no float intermediate so there is zero IEEE-754 drift.
+        $basisPoints = 0;
+        if ($ticketType->group_discount !== null) {
+            $parts = explode('.', (string) $ticketType->group_discount);
+            $fraction = str_pad(substr($parts[1] ?? '', 0, 4), 4, '0', STR_PAD_RIGHT);
+            $basisPoints = (int) $fraction;
+        }
 
         if ($groupSize !== null && $basisPoints > 0 && $quantity >= $groupSize) {
             // unit = price * (10000 - bp) / 10000, rounded half-up, via integer math only.

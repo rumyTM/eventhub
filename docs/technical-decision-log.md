@@ -452,9 +452,12 @@
   payment-service's refund ref. This is sound because of the **one-open-refund-per-order invariant** (ADR-29) and
   avoids a column + a POST-response/webhook ordering race; the order-row lock serializes per-order processing.
 - Per-vendor split + ticket/order state: the refund amount is split across vendors **proportionally to gross share**
-  (remainder-safe; exact for a full-order refund, since `selectedBase = order total`). Tickets are voided (`valid →
-  refunded`) and the order set `refunded` **only when cumulative refunds reach the order total**; otherwise the order
-  is `partially_refunded` and tickets are left valid.
+  (remainder-safe; exact for a full-order refund, since `selectedBase = order total`). On **any** completed refund,
+  every `valid` ticket on the order is voided (`valid → refunded`) **and its inventory is returned** (`decrementSold`),
+  because the attendee is cancelling the purchase regardless of the money-back percentage (the policy governs the
+  refunded **amount**, not the ticket's fate). Order status reflects **money returned, not ticket count**: `refunded`
+  when cumulative completed refunds reach the order total, else `partially_refunded` (e.g. the 24–48h 50% band — the
+  ticket is still gone and its seat resellable). See ADR-37.
 - Alternatives considered: (a) settle the refund synchronously in the POST response — rejected: it diverges from the
   charge path, loses the persist-first/retry guarantee, and couples two services on one request; (b) store
   payment-service's refund ref on core-api's refund and correlate on it — more robust in the abstract but needs a
@@ -464,8 +467,9 @@
   guarantee across both money flows — the smallest surface a reviewer must trust. The reversal+commission pair keeps
   the ledger symmetric and auditable; the clawback fallback handles the rare refund-after-payout without reversing a
   completed payout.
-- Trade-off accepted (5-day): Chunk A did **not** persist the per-item refund selection, so a **partial** refund's
-  per-vendor split is proportional (not by the exact items) and its specific tickets are not voided — acceptable
+- Trade-off accepted (5-day): Chunk A did **not** persist the per-item refund selection, so a **subset** refund's
+  per-vendor split is proportional (not by the exact items) and it voids **all** of the order's valid tickets rather
+  than only the selected subset — acceptable
   because the common case is a full-order refund (exact), the money totals are always correct, and the cumulative cap
   (ADR-29) plus the append-only ledger keep the books reconcilable. Persisting `refund_items` is the documented
   follow-up that makes partial refunds exact end-to-end.
@@ -557,6 +561,30 @@
   `payout_items` for this order being inserted while the refund transaction runs, so the effective serialization is
   correct for the current schema and concurrency pattern.
 
+### ADR-37: A refunded ticket is voided and its seat returned to inventory; the refund % is money-only
+- Decision: when a refund completes, the ticket is **always voided** (`valid → refunded`, the QR no longer admits) and
+  its **seat is returned to sellable inventory** (`TicketTypeRepository::decrementSold`), independent of the refund
+  percentage. The 100/50/0% bands (ADR-11, `RefundPolicy`) govern only how much **money** is returned — there is no
+  half-ticket. Order status tracks money, not ticket count: `refunded` when cumulative completed refunds equal the
+  order total, else `partially_refunded` (a full-ticket, half-money refund in the 24–48h band lands here). Implemented
+  in `ProcessRefundWebhookService::voidTicketsAndUpdateOrder`.
+- Alternatives considered: (a) leave the seat consumed (never return inventory) — simpler and no resale race, but
+  strands capacity the attendee no longer uses, hurting the vendor for no benefit; (b) tie ticket voiding to whether
+  the **money** refunded reaches the order total — rejected: a 50% refund would then leave a `valid` ticket while the
+  attendee got half their money back (keep the ticket **and** half the cash), which is wrong; (c) return inventory
+  only outside the sales window — unnecessary, since availability is computed at read time, so a returned seat is
+  simply sellable again iff sales are still open.
+- Why: ticket fate and money owed are **orthogonal**. Cancelling forfeits the seat in full; the % is a cancellation
+  penalty on the refunded money, not a partial right to attend. Returning the seat maximises resale (the 50% band is
+  24–48h out, when last-minute buyers exist), and because availability already nets `quantity_sold`, the decrement
+  makes the seat resellable with no extra path.
+- Trade-off accepted: this clarifies/supersedes the ticket-fate description in ADR-30 (which stated partial refunds
+  leave tickets valid — that never matched the implementation). Open follow-ups: (1) the kept penalty (e.g. the 50%
+  retained in the 24–48h band) currently nets through the symmetric reversal ledger; if it should ever be split
+  differently between vendor and platform, pin that rule down explicitly; (2) inventory is returned for **every** item
+  unconditionally, so a refund on an already-`checked_in` ticket must be blocked at the request path (verify
+  `RefundService`/the refund request rules) — otherwise a consumed seat could be returned to inventory.
+
 ---
 
 ## Trade-offs made due to the 5-day constraint
@@ -571,6 +599,10 @@
 ## With more time — what I'd improve, add, or redesign
 
 - **Finish the deferred features:** ticket transfers and waitlist processing.
+- **Richer group/bundle pricing:** today a group bundle is two attributes on a ticket type (`group_size` +
+  `group_discount` — a single % off once a quantity threshold is met). With more time I'd make it dynamic — multiple
+  bundle variants per ticket type, independent bundle prices (not just a percentage), and tiered quantities
+  (e.g. buy 4 / buy 10) — modelled as first-class bundle records rather than two columns.
 - **Integrate a real payment gateway and real email** in place of the simulators.
 - **Dynamic roles/permissions (revisiting ADR-21):** adopt spatie/laravel-permission if roles become admin-defined or permissions become granular/per-user.
 - **Multi-currency + FX and a tax/fee engine** (ADR-12) when expanding beyond Bangladesh — the schema already carries `currency` to make this a logic change, not a migration.

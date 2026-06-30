@@ -7,8 +7,10 @@ use App\Helpers\LogHelper;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Refunds\InitiateRefundRequest;
 use App\Http\Requests\Refunds\RequestRefundRequest;
+use App\Http\Resources\DisputeResource;
 use App\Http\Resources\RefundResource;
 use App\Jobs\ExecuteRefundJob;
+use App\Models\Dispute;
 use App\Models\Order;
 use App\Models\Refund;
 use App\Services\Refunds\RefundService;
@@ -90,18 +92,25 @@ final class RefundController extends Controller
     }
 
     /**
-     * Shared response: dispatch the execution job ONLY for a freshly-created refund (a duplicate request
-     * returns the existing open refund with `wasRecentlyCreated` false, so it never re-fires). afterCommit
-     * so the job is enqueued only once the refund row has durably committed. Execution is Chunk C.
+     * Shared response: if a Dispute was opened (out-of-policy), return the dispute and skip job dispatch.
+     * For a Refund, dispatch the execution job ONLY for a freshly-created row (duplicate → no re-fire).
      */
-    private function respond(Refund $refund): JsonResponse
+    private function respond(Refund|Dispute $result): JsonResponse
     {
-        if ($refund->wasRecentlyCreated) {
-            ExecuteRefundJob::dispatch($refund->id)->afterCommit();
+        if ($result instanceof Dispute) {
+            return ApiResponse::success(
+                data: ['dispute' => new DisputeResource($result)],
+                message: __('api.refunds.dispute_opened'),
+                status: 200,
+            );
+        }
+
+        if ($result->wasRecentlyCreated) {
+            ExecuteRefundJob::dispatch($result->id)->afterCommit();
         }
 
         return ApiResponse::success(
-            data: ['refund' => new RefundResource($refund)],
+            data: ['refund' => new RefundResource($result)],
             message: __('api.refunds.requested'),
             status: 202,
         );

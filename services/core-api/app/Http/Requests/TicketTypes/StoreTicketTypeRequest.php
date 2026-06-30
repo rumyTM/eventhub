@@ -29,7 +29,7 @@ class StoreTicketTypeRequest extends FormRequest
             'group_size' => ['nullable', 'integer', 'min:2'],
             'group_discount' => ['nullable', 'required_with:group_size', 'numeric', 'min:0', 'lt:1'],
             'sales_start' => ['nullable', 'date'],
-            'sales_end' => ['nullable', 'date', 'after:sales_start'],
+            'sales_end' => ['nullable', 'date', 'after:sales_start', 'before_or_equal:'.$this->route('event')->starts_at->toIso8601String()],
         ];
     }
 
@@ -49,6 +49,16 @@ class StoreTicketTypeRequest extends FormRequest
     {
         if (is_string($this->currency)) {
             $this->merge(['currency' => mb_strtoupper($this->currency)]);
+        }
+
+        $event = $this->route('event');
+
+        if (empty($this->sales_start)) {
+            $this->merge(['sales_start' => now()->toIso8601String()]);
+        }
+
+        if (empty($this->sales_end) && $event !== null) {
+            $this->merge(['sales_end' => $event->starts_at->toIso8601String()]);
         }
     }
 

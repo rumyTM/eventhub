@@ -9,13 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ErrorDisplay } from "@/components/error-display";
+import { DateTimePicker } from "@/components/date-time-picker";
 import { toast } from "sonner";
 import { useState } from "react";
-
-// Converts "2026-08-01T12:00:00+06:00" → "2026-08-01T12:00" for datetime-local inputs
-function toDateTimeLocal(iso: string) {
-  return iso.slice(0, 16);
-}
 
 export default function EditEventPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -80,19 +76,19 @@ export default function EditEventPage({ params }: { params: { id: string } }) {
             <Label htmlFor="description">Description</Label>
             <Textarea id="description" name="description" defaultValue={evt.description} rows={3} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="starts_at">Starts at</Label>
-              <Input id="starts_at" name="starts_at" type="datetime-local" defaultValue={toDateTimeLocal(evt.starts_at)} required />
+              <Label>Starts at</Label>
+              <DateTimePicker name="starts_at" defaultValue={evt.starts_at} />
               {errors.starts_at && <p className="text-xs text-destructive">{errors.starts_at}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ends_at">Ends at</Label>
-              <Input id="ends_at" name="ends_at" type="datetime-local" defaultValue={toDateTimeLocal(evt.ends_at)} required />
+              <Label>Ends at</Label>
+              <DateTimePicker name="ends_at" defaultValue={evt.ends_at} />
               {errors.ends_at && <p className="text-xs text-destructive">{errors.ends_at}</p>}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="timezone">Timezone</Label>
               <Input id="timezone" name="timezone" defaultValue={evt.timezone} required />

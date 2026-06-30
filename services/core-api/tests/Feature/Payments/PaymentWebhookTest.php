@@ -7,6 +7,7 @@ use App\Enums\LedgerEntryType;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\TicketStatus;
+use App\Jobs\ExecuteRefundJob;
 use App\Jobs\SendOrderConfirmationJob;
 use App\Models\Attendee;
 use App\Models\Event;
@@ -239,11 +240,12 @@ class PaymentWebhookTest extends TestCase
         $this->assertSame(0, Ticket::query()->where('order_id', $order->id)->count());
         $this->assertSame(0, $tt->fresh()->quantity_sold);
         $this->assertSame(0, LedgerEntry::query()->where('subject_id', $order->id)->count());
-        // Order stays pending for the expiry net; the charge is recorded succeeded (a refund concern).
-        $this->assertSame(OrderStatus::Pending, $order->fresh()->status);
+        // Order expired immediately; auto-refund queued so the captured charge is returned to the attendee.
+        $this->assertSame(OrderStatus::Expired, $order->fresh()->status);
         $this->assertSame(PaymentStatus::Succeeded, $payment->fresh()->status);
         $this->assertSame(0, TicketHold::query()->where('order_id', $order->id)->where('status', HoldStatus::Converted->value)->count());
         Queue::assertNotPushed(SendOrderConfirmationJob::class);
+        Queue::assertPushed(ExecuteRefundJob::class);
     }
 
     public function test_a_success_with_no_matching_payment_row_is_a_noop(): void

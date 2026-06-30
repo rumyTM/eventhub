@@ -1,8 +1,10 @@
 # EventHub — Entity Relationship Diagram
 
-> **Graded deliverable** (part of Rubric 2). A starter ERD is seeded below to match the schema described in
-> `services/core-api/CLAUDE.md` §F and `system-architecture.md`. Refine columns/types as migrations are written and
-> keep this in sync. Renders on GitHub/GitLab and in Mermaid Live.
+> **Graded deliverable** (part of Rubric 2). This ERD reflects the **implemented** core-api migrations
+> (`services/core-api/database/migrations`) as of the latest schema — including the `2026_06_30_*` additions
+> (`order_items.original_price`, `sales_reports.total_discount`, `payouts.paid_at`). Renders on GitHub/GitLab and in
+> Mermaid Live. (payment-service keeps its own `payments`/`idempotency_keys` tables in its own DB; this diagram is the
+> core-api domain schema.)
 
 ## ER diagram (Mermaid)
 
@@ -127,7 +129,8 @@ erDiagram
         ulid order_id FK
         ulid ticket_type_id FK
         int quantity
-        bigint unit_price "minor units, locked at hold creation"
+        bigint unit_price "minor units, locked at hold creation (post group-discount)"
+        bigint original_price "per-unit price BEFORE group discount (minor units)"
     }
     ticket_holds {
         ulid id PK
@@ -168,13 +171,15 @@ erDiagram
     payouts {
         ulid id PK
         ulid vendor_id FK
-        bigint gross "minor units"
-        bigint commission
-        bigint net
+        bigint gross "minor units — SUM of sale entries"
+        bigint commission "absolute value of commission entries"
+        bigint net "gross - commission (signed; may be negative)"
+        bigint payable "net + adjustments, floored at 0; amount sent to payment-service"
         bigint reserved_refund "minor units, reserved vs in-window refunds"
         string currency "ISO 4217"
         enum status "pending|approved|processing|paid|failed"
         string batch_id
+        timestamp paid_at "nullable; set on webhook-confirmed payout"
         string idempotency_key UK
     }
     payout_items {
@@ -182,6 +187,7 @@ erDiagram
         ulid payout_id FK
         ulid order_id FK
         bigint settled_amount "minor units"
+        timestamp settled_at "nullable; set on webhook success (null = not yet settled)"
     }
     disputes {
         ulid id PK
@@ -241,6 +247,7 @@ erDiagram
         bigint gross "minor units"
         bigint commission "minor units"
         bigint net "minor units"
+        bigint total_discount "minor units — group/bundle discount given that day"
         string currency
         timestamp created_at
     }
@@ -309,7 +316,9 @@ erDiagram
   date and never rewrites a past day's report** — corrections land on the day they happen (consistent with the
   append-only ledger), and a period total is just the ledger summed over the range, which reconciles exactly with the
   per-day rows. It is a derived read-model — the `ledger_entries` remain the source of truth; a report can always be
-  recomputed from the ledger.
+  recomputed from the ledger. `total_discount` aggregates the group/bundle discount given that day
+  (`SUM((order_items.original_price − unit_price) × quantity)`), so the dashboard can show gross vs. discount vs. net
+  without re-deriving pricing.
   - *Caveat (NULL is distinct in a MySQL unique index):* the `unique(report_date, vendor_id)` constraint does **not**
     prevent duplicate **platform-wide** rows, because every `vendor_id IS NULL` value is treated as distinct — the
     index guards vendor-scoped rows only. So `GenerateSalesReport` must dedupe the platform-wide row at the
@@ -334,9 +343,16 @@ erDiagram
   `SUM(ledger_entries.amount) WHERE vendor_id = ?` (sales − commission − payouts ± clawbacks). A refund-after-payout
   writes a negative `clawback` entry, so the derived balance **can go negative** and is reconciled against the next
   payout cycle.
+- **payouts amount columns.** `gross − commission = net` (signed; may be negative). `payable = net + adjustments`
+  (refunds/clawbacks, typically ≤ 0), floored at 0 — this is the amount actually sent to the payment-service; below
+  the minimum threshold it floors to 0 and rolls to the next cycle. `paid_at` is stamped **only** when the payout
+  webhook confirms disbursement (not when the row is built or sent), so a built-but-unpaid payout is distinguishable
+  from a settled one.
 - **payouts → payout_items (settlement traceability).** A `payout` settles many orders; `payout_items` records the
-  exact `(payout_id, order_id, settled_amount)` for each, so every payout is **traceable to the precise orders it
-  paid for** — essential for reconciliation and the clawback story (ADR-20). Crucially, an order's revenue is **only
+  exact `(payout_id, order_id, settled_amount, settled_at)` for each, so every payout is **traceable to the precise
+  orders it paid for** — essential for reconciliation and the clawback story (ADR-20). `settled_at` is null until the
+  payout webhook confirms success (per-order settlement confirmation), and `unique(payout_id, order_id)` is a DB-level
+  guard that the same order can never be double-listed in one payout. Crucially, an order's revenue is **only
   settled once its event is `completed`** (never before), and each payout carries a `reserved_refund` amount held
   against not-yet-settled orders. Settling only after the event has happened means a cancelled/no-show event is never
   paid out at all and most refunds resolve *before* money is ever paid, so the negative `clawback` entry (ADR-13) is
@@ -354,8 +370,11 @@ immutability requirement:
 - **`ticket_types.quantity_sold` (counter).** Availability (`quantity_total − quantity_sold − active_holds`) is
   evaluated **inside the distributed lock on every checkout** — the hottest path in the system. A maintained counter
   avoids a `COUNT` over `tickets`/`order_items` per attempt. Incremented transactionally on payment success only.
-- **`order_items.unit_price` (price snapshot).** Decouples the order from later price edits / sales-window cutoffs.
-  The quoted price is captured at hold creation and is the charged price.
+- **`order_items.unit_price` + `original_price` (price snapshot + discount provenance).** `unit_price` (the charged,
+  post-discount per-unit price) is captured at hold creation and decouples the order from later price edits /
+  sales-window cutoffs. `original_price` records the pre-discount per-unit price alongside it, so the group/bundle
+  discount applied is derivable per line (`(original_price − unit_price) × quantity`) without re-running the pricing
+  rule — this is what `sales_reports.total_discount` aggregates.
 - **`orders.commission_rate` (rate snapshot).** Payouts compute from the rate in force **at sale time**, not the
   live platform/vendor rate, so historical payouts stay reproducible from the ledger even if the rate later changes.
 - **`orders.total` (sum cache).** Cached sum of line items for fast listing/queries; `order_items` remain the source
@@ -376,6 +395,7 @@ Each index named by the query it serves:
 | Table | Index (columns) | Serves |
 |---|---|---|
 | `users` | `unique(email)` | login / registration uniqueness |
+| `users` | `index(role)` | role-based filtering (admin / vendor / attendee) |
 | `events` | `idx_events_status_starts_at(status, starts_at)` | public listing of `published` events; `SendEventReminders` cron window |
 | `events` | `idx_events_vendor_id(vendor_id)` | a vendor's own events |
 | `ticket_types` | `idx_ticket_types_event_id(event_id)` | load ticket types for an event detail page |
@@ -388,6 +408,7 @@ Each index named by the query it serves:
 | `tickets` | `idx_tickets_order_item_id(order_item_id)` | resolve the N tickets issued for an order line / bundle |
 | `payout_items` | `idx_payout_items_payout_id(payout_id)` | list the orders a payout settled (reconciliation) |
 | `payout_items` | `idx_payout_items_order_id(order_id)` | check whether an order has already been settled |
+| `payout_items` | `uq_payout_items_payout_order` `unique(payout_id, order_id)` | DB guard — one settlement row per (payout, order); no duplicate items |
 | `payments` | `idx_payments_order_id(order_id)` | resolve a payment from its order / webhook callback |
 | `payments` | `unique(idempotency_key)` | de-dupe a retried charge attempt at the payment-service |
 | `refunds` | `idx_refunds_payment_id(payment_id)` | cumulative-refund validation against a payment |

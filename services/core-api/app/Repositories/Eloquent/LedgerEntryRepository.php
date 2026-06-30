@@ -107,10 +107,18 @@ final class LedgerEntryRepository implements LedgerEntryRepositoryInterface
             $perOrder[$orderId] = max(0, $net);
         }
 
+        // Anchor the clawback window on paid_at (write-once, set only on paid transition) rather than
+        // updated_at (mutable; a processing→processing retry updates it and can silently push the
+        // boundary past legitimate clawback entries written in the same window).
+        $lastPaidAt = Payout::query()
+            ->where('vendor_id', $vendorId)
+            ->where('status', PayoutStatus::Paid->value)
+            ->max('paid_at');
+
         // Refund-entry adjustments: only completed refunds have ledger entries (ADR-30).
-        // H-1: include BOTH Refund entries (sale reversal, negative) AND Commission entries with
-        // subject_type=refund (commission returned to vendor, positive). Scoping both by subject_id in
-        // $eligibleRefundIds captures the full net of a refund for this vendor on this batch's orders.
+        // Include BOTH Refund entries (sale reversal, negative) AND Commission entries with
+        // subject_type=refund (commission returned to vendor, positive). These cover refunds on
+        // orders that are still in $eligibleOrderIds (not yet settled in a paid payout).
         $eligibleRefundIds = Refund::query()
             ->whereHas('payment', fn ($q) => $q->whereIn('order_id', $eligibleOrderIds))
             ->where('status', RefundStatus::Completed->value)
@@ -124,14 +132,22 @@ final class LedgerEntryRepository implements LedgerEntryRepositoryInterface
             ->whereIn('subject_id', $eligibleRefundIds)
             ->sum('amount') : 0;
 
-        // Clawback entries scoped to AFTER the vendor's last paid payout (H-3: clawbacks that were
-        // already present when a prior cycle was built have already reduced that cycle's payable; only
-        // clawbacks that arrived after the last paid payout are new and belong to the current cycle).
-        $lastPaidAt = Payout::query()
+        // Commission reversals for refunds on ALREADY-SETTLED orders: when a refund completes on an
+        // order that was in a prior paid payout, ProcessRefundWebhookService writes a Clawback entry
+        // (the debit, caught below) AND a Commission entry with subject_type=refund (the credit, NOT
+        // in $eligibleRefundIds because that order is excluded from eligibleOrderIds). Without this
+        // query the vendor is permanently short-changed by the returned commission on those refunds.
+        // The $lastPaidAt filter (same window as clawbacks) prevents double-counting across cycles.
+        $orphanedCommissionReversal = (int) LedgerEntry::query()
             ->where('vendor_id', $vendorId)
-            ->where('status', PayoutStatus::Paid->value)
-            ->max('updated_at');
+            ->where('entry_type', LedgerEntryType::Commission->value)
+            ->where('subject_type', 'refund')
+            ->when($eligibleRefundIds !== [], fn ($q) => $q->whereNotIn('subject_id', $eligibleRefundIds))
+            ->when($lastPaidAt !== null, fn ($q) => $q->where('created_at', '>', $lastPaidAt))
+            ->sum('amount');
 
+        // Clawback entries: scoped to AFTER the vendor's last paid payout so clawbacks that were
+        // already captured in a prior cycle are not double-counted.
         $clawbackQuery = LedgerEntry::query()
             ->where('vendor_id', $vendorId)
             ->where('entry_type', LedgerEntryType::Clawback->value);
@@ -145,8 +161,39 @@ final class LedgerEntryRepository implements LedgerEntryRepositoryInterface
         return [
             'gross' => $gross,
             'commission' => $commission,
-            'adjustments' => $refundAdjustments + $clawbackAdjustments,
+            'adjustments' => $refundAdjustments + $orphanedCommissionReversal + $clawbackAdjustments,
             'per_order' => $perOrder,
         ];
+    }
+
+    public function dailyDiscountByVendor(string $reportDate): array
+    {
+        return LedgerEntry::query()
+            ->select('ledger_entries.vendor_id')
+            ->selectRaw('SUM((oi.original_price - oi.unit_price) * oi.quantity) as total_discount')
+            ->join('order_items as oi', 'oi.order_id', '=', 'ledger_entries.subject_id')
+            ->where('ledger_entries.entry_type', LedgerEntryType::Sale->value)
+            ->where('ledger_entries.subject_type', 'order')
+            ->whereDate('ledger_entries.created_at', $reportDate)
+            ->whereColumn('oi.original_price', '>', 'oi.unit_price')
+            ->groupBy('ledger_entries.vendor_id')
+            ->get()
+            ->map(fn ($row) => [
+                'vendor_id' => $row->vendor_id,
+                'total_discount' => (int) $row->total_discount,
+            ])
+            ->all();
+    }
+
+    public function pendingRefundAmountForOrders(array $orderIds): int
+    {
+        if ($orderIds === []) {
+            return 0;
+        }
+
+        return (int) Refund::query()
+            ->whereHas('payment', fn ($q) => $q->whereIn('order_id', $orderIds))
+            ->whereIn('status', [RefundStatus::Requested->value, RefundStatus::Pending->value])
+            ->sum('amount');
     }
 }

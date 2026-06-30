@@ -19,6 +19,9 @@ class PayoutResource extends JsonResource
         return [
             'id' => $this->id,
             'vendor_id' => $this->vendor_id,
+            'vendor' => $this->whenLoaded('vendor', fn () => [
+                'business_name' => $this->vendor->business_name,
+            ]),
             'batch_id' => $this->batch_id,
             'currency' => $this->currency,
             'gross' => $this->gross,

@@ -43,29 +43,64 @@ services:
     env_file: .env
     environment:
       APP_PORT: 8000
+      APP_DEBUG: "true"
+      LOG_LEVEL: debug
       DB_HOST: mysql
       DB_DATABASE: ${CORE_DB_DATABASE}
       REDIS_HOST: redis
       PAYMENT_SERVICE_URL: http://payment-service:8001
       PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
       NOTIFICATION_QUEUE_REDIS: redis://redis:6379
+      CORE_API_BEARER_TOKEN: ${CORE_API_BEARER_TOKEN}   # verifies inbound payment webhooks
+      CORE_API_WEBHOOK_SECRET: ${CORE_API_WEBHOOK_SECRET}
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
 
   core-api-worker:        # queue worker (notification publish, payment calls)
     build: ./services/core-api
-    command: php artisan queue:work --tries=3
+    command: php artisan queue:work --tries=3 --verbose
     env_file: .env
-    environment: { DB_HOST: mysql, REDIS_HOST: redis }
+    environment:
+      APP_DEBUG: "true"
+      LOG_LEVEL: debug
+      DB_HOST: mysql
+      DB_DATABASE: ${CORE_DB_DATABASE}
+      REDIS_HOST: redis
+      PAYMENT_SERVICE_URL: http://payment-service:8001
+      PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
+      CORE_API_BEARER_TOKEN: ${CORE_API_BEARER_TOKEN}
+      CORE_API_WEBHOOK_SECRET: ${CORE_API_WEBHOOK_SECRET}
     depends_on:
       core-api: { condition: service_started }
+
+  payment-service-worker:   # queue worker — resolves charges and delivers signed webhooks to core-api
+    build: ./services/payment-service
+    command: php artisan queue:work --tries=5 --verbose
+    env_file: .env
+    environment:
+      APP_DEBUG: "true"
+      LOG_LEVEL: debug
+      DB_HOST: mysql
+      DB_DATABASE: ${PAYMENTS_DB_DATABASE}
+      REDIS_HOST: redis
+      PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
+      CORE_API_BEARER_TOKEN: ${CORE_API_BEARER_TOKEN}
+      CORE_API_WEBHOOK_SECRET: ${CORE_API_WEBHOOK_SECRET}
+      CORE_API_WEBHOOK_URL: ${CORE_API_WEBHOOK_URL}
+      CORE_API_REFUND_WEBHOOK_URL: ${CORE_API_REFUND_WEBHOOK_URL}
+      CORE_API_PAYOUT_WEBHOOK_URL: ${CORE_API_PAYOUT_WEBHOOK_URL}
+    depends_on:
+      payment-service: { condition: service_started }
 
   core-api-scheduler:     # cron: ReleaseExpiredHolds, payout batch, reminders, reports, waitlist
     build: ./services/core-api
     command: sh -c "while true; do php artisan schedule:run; sleep 60; done"
     env_file: .env
-    environment: { DB_HOST: mysql, REDIS_HOST: redis }
+    environment:
+      DB_HOST: mysql
+      DB_DATABASE: ${CORE_DB_DATABASE}
+      REDIS_HOST: redis
     depends_on:
       core-api: { condition: service_started }
 
@@ -76,13 +111,21 @@ services:
     env_file: .env
     environment:
       APP_PORT: 8001
+      APP_DEBUG: "true"
+      LOG_LEVEL: debug
       DB_HOST: mysql
       DB_DATABASE: ${PAYMENTS_DB_DATABASE}
+      REDIS_HOST: redis
       PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
       CORE_API_URL: http://core-api:8000
+      CORE_API_BEARER_TOKEN: ${CORE_API_BEARER_TOKEN}
       CORE_API_WEBHOOK_SECRET: ${CORE_API_WEBHOOK_SECRET}
+      CORE_API_WEBHOOK_URL: ${CORE_API_WEBHOOK_URL}
+      CORE_API_REFUND_WEBHOOK_URL: ${CORE_API_REFUND_WEBHOOK_URL}
+      CORE_API_PAYOUT_WEBHOOK_URL: ${CORE_API_PAYOUT_WEBHOOK_URL}
     depends_on:
       mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
   notification-service:
     build: ./services/notification-service   # scaffold this service first (`/scaffold-service notification-service`)

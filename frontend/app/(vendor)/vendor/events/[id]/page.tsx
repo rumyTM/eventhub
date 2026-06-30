@@ -1,6 +1,6 @@
 "use client";
-import { useQuery } from "@tanstack/react-query";
-import { eventsApi } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { eventsApi, ApiError } from "@/lib/api";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ErrorDisplay } from "@/components/error-display";
 import { Badge } from "@/components/ui/badge";
@@ -9,8 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate, formatMoney } from "@/lib/utils";
 import Link from "next/link";
 import { TicketTypesSection } from "./ticket-types-section";
+import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
 
 export default function VendorEventDetailPage({ params }: { params: { id: string } }) {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const kycPending = user?.vendor?.kyc_status?.value === "pending";
+
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["event", params.id],
     queryFn: () => eventsApi.show(params.id),
@@ -19,6 +25,18 @@ export default function VendorEventDetailPage({ params }: { params: { id: string
   const { data: ttData, isLoading: ttLoading, refetch: ttRefetch } = useQuery({
     queryKey: ["event-ticket-types", params.id],
     queryFn: () => eventsApi.listTicketTypes(params.id),
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: (status: string) => eventsApi.update(params.id, { status }),
+    onSuccess: (res) => {
+      toast.success(`Event ${res.event.status.label.toLowerCase()}.`);
+      qc.invalidateQueries({ queryKey: ["event", params.id] });
+      qc.invalidateQueries({ queryKey: ["vendor-events"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Failed to update event status.");
+    },
   });
 
   if (isLoading) return <LoadingSpinner />;
@@ -30,6 +48,8 @@ export default function VendorEventDetailPage({ params }: { params: { id: string
   const totalSold = ticketTypes.reduce((s, tt) => s + tt.quantity_sold, 0);
   const totalRevenue = ticketTypes.reduce((s, tt) => s + tt.quantity_sold * tt.price, 0);
 
+  const statusValue = evt.status.value;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -39,6 +59,32 @@ export default function VendorEventDetailPage({ params }: { params: { id: string
         </div>
         <div className="flex items-center gap-3">
           <Badge>{evt.status.label}</Badge>
+
+          {statusValue === "draft" && (
+            <div title={kycPending ? "KYC approval required before publishing" : undefined}>
+              <Button
+                onClick={() => statusMutation.mutate("published")}
+                disabled={statusMutation.isPending || kycPending}
+              >
+                {statusMutation.isPending ? "Publishing…" : "Publish"}
+              </Button>
+            </div>
+          )}
+
+          {(statusValue === "published" || statusValue === "ongoing") && (
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (confirm("Cancel this event? All attendees will be refunded.")) {
+                  statusMutation.mutate("cancelled");
+                }
+              }}
+              disabled={statusMutation.isPending}
+            >
+              Cancel Event
+            </Button>
+          )}
+
           <Button asChild variant="outline">
             <Link href={`/vendor/events/${evt.id}/edit`}>Edit</Link>
           </Button>
@@ -58,6 +104,7 @@ export default function VendorEventDetailPage({ params }: { params: { id: string
 
       <TicketTypesSection
         eventId={evt.id}
+        eventStartsAt={evt.starts_at}
         ticketTypes={ticketTypes}
         loading={ttLoading}
         onRefresh={ttRefetch}

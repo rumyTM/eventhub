@@ -17,6 +17,7 @@ return [
         'timezone' => 'The timezone must be a valid IANA time zone identifier.',
         'ends_after_starts' => 'The end time must be after the start time.',
         'sales_ends_after_starts' => 'The sales end time must be after the sales start time.',
+        'sales_end_before_event_start' => 'Ticket sales must close by the time the event starts.',
         'group_discount_fraction' => 'The group discount must be a fraction between 0 and 1 (e.g. 0.10).',
     ],
 
@@ -53,6 +54,8 @@ return [
     ],
 
     'orders' => [
+        'listed' => 'Orders retrieved.',
+        'retrieved' => 'Order retrieved.',
         'created' => 'Order created. Your tickets are held for 15 minutes — complete payment to confirm.',
         'idempotency_key_required' => 'An Idempotency-Key header is required for checkout.',
         'idempotency_conflict' => 'This Idempotency-Key was already used with a different request.',
@@ -62,6 +65,14 @@ return [
         'sales_window_closed' => 'The sales window for this ticket type is not open.',
         'lock_unavailable' => 'This ticket type is busy; please retry in a moment.',
         'attendee_profile_required' => 'Your attendee profile is incomplete; please contact support.',
+        'payment_initiated' => 'Payment initiated. Your order will be confirmed shortly.',
+        'not_payable' => 'This order is not in a payable state.',
+        'validation' => [
+            'status_invalid' => 'The status must be a valid order status.',
+            'per_page_integer' => 'The per_page value must be a whole number.',
+            'per_page_min' => 'The per_page value must be at least 1.',
+            'per_page_max' => 'The per_page value may not exceed 100.',
+        ],
     ],
 
     'payments' => [
@@ -76,14 +87,25 @@ return [
         'not_allowed' => 'This order cannot be refunded.',
         'no_payment' => 'No completed payment was found for this order.',
         'not_eligible_window' => 'This request is outside the refund window, so no automatic refund applies.',
+        'dispute_opened' => 'Your request is outside the automatic refund window. A dispute has been opened and an admin will review it.',
         'already_refunded' => 'This order has already been fully refunded.',
         'invalid_item' => 'A selected ticket does not belong to this order.',
         'invalid_quantity' => 'The selected quantity exceeds the tickets on this order.',
     ],
 
+    'disputes' => [
+        'listed' => 'Disputes retrieved.',
+        'resolved' => 'Dispute resolved. Refund has been queued.',
+        'rejected' => 'Dispute rejected.',
+        'resolution_required' => 'A resolution note is required when rejecting a dispute.',
+    ],
+
     'payouts' => [
         'listed' => 'Payouts retrieved.',
         'built' => ':count payout(s) built for this batch.',
+        'requested' => 'Payout request created. An admin will process it shortly.',
+        'preview_ready' => 'Payout preview calculated.',
+        'nothing_eligible' => 'No eligible settled orders meet the minimum payout threshold.',
         'vendor_not_found' => 'The specified vendor does not exist.',
         'execution_queued' => 'Payout execution queued. The result will arrive via webhook.',
         'not_executable' => 'Payout must be pending or approved to execute.',

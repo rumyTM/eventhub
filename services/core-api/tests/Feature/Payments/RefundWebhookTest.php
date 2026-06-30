@@ -143,6 +143,8 @@ class RefundWebhookTest extends TestCase
         $this->assertSame(OrderStatus::Refunded, $order->fresh()->status);
         $this->assertSame(2, Ticket::query()->where('order_id', $order->id)->where('status', TicketStatus::Refunded->value)->count());
         $this->assertSame(0, Ticket::query()->where('order_id', $order->id)->where('status', TicketStatus::Valid->value)->count());
+        // Inventory returned: quantity_sold decremented so seats are resellable (ADR-37).
+        $this->assertSame(0, $tt->fresh()->quantity_sold);
 
         // Signed reversal, attributed to the vendor, subject = the refund: −refund (sale reversal) and
         // +commission (platform returns its cut). Original sale (+100000/−10000) + this nets to zero.
@@ -219,17 +221,24 @@ class RefundWebhookTest extends TestCase
         $this->assertSame(0, LedgerEntry::query()->where('subject_id', $refund->id)->count());
     }
 
-    public function test_a_partial_refund_marks_partially_refunded_and_leaves_tickets_valid(): void
+    public function test_a_partial_money_refund_voids_tickets_returns_inventory_and_marks_partially_refunded(): void
     {
-        // 50% of a 100000 order = 50000 refunded — a partial, so the order is partially_refunded and the
-        // tickets are NOT voided (the per-item selection isn't persisted on the refund).
-        ['order' => $order, 'refund' => $refund] = $this->scenario(quantity: 2, price: 50_000, refundAmount: 50_000);
+        // ADR-37: policy % governs money-back, NOT ticket fate. A 50%-policy refund (money refunded <
+        // order total) still voids all valid tickets and returns seats to inventory — the attendee is
+        // cancelling the purchase regardless of how much they get back.
+        ['order' => $order, 'ticketType' => $tt, 'refund' => $refund] = $this->scenario(quantity: 2, price: 50_000, refundAmount: 50_000);
 
         $this->postWebhook($this->payload($order, $refund))->assertOk();
 
         $this->assertSame(RefundStatus::Completed, $refund->fresh()->status);
+        // Money-based status: 50k refunded out of 100k total → partially_refunded.
         $this->assertSame(OrderStatus::PartiallyRefunded, $order->fresh()->status);
-        $this->assertSame(2, Ticket::query()->where('order_id', $order->id)->where('status', TicketStatus::Valid->value)->count());
+        // Tickets VOIDED — the attendee gave up their seats (ADR-37).
+        $this->assertSame(2, Ticket::query()->where('order_id', $order->id)->where('status', TicketStatus::Refunded->value)->count());
+        $this->assertSame(0, Ticket::query()->where('order_id', $order->id)->where('status', TicketStatus::Valid->value)->count());
+        // Inventory returned: seats are resellable even though only 50% of money was returned.
+        $this->assertSame(0, $tt->fresh()->quantity_sold);
+        // Ledger reversal at the 50k refund amount.
         $this->assertSame(-50_000, LedgerEntry::query()->where('subject_id', $refund->id)->where('entry_type', LedgerEntryType::Refund->value)->sole()->amount);
         $this->assertSame(5_000, LedgerEntry::query()->where('subject_id', $refund->id)->where('entry_type', LedgerEntryType::Commission->value)->sole()->amount);
     }

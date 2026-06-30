@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Contracts\NotificationPublisherContract;
 use App\Contracts\PaymentServiceContract;
 use App\Repositories\Contracts\AttendeeRepositoryInterface;
+use App\Repositories\Contracts\DisputeRepositoryInterface;
 use App\Repositories\Contracts\EventReminderRepositoryInterface;
 use App\Repositories\Contracts\EventRepositoryInterface;
 use App\Repositories\Contracts\IdempotencyKeyRepositoryInterface;
@@ -22,6 +23,7 @@ use App\Repositories\Contracts\UserRepositoryInterface;
 use App\Repositories\Contracts\VendorRepositoryInterface;
 use App\Repositories\Contracts\WaitlistRepositoryInterface;
 use App\Repositories\Eloquent\AttendeeRepository;
+use App\Repositories\Eloquent\DisputeRepository;
 use App\Repositories\Eloquent\EventReminderRepository;
 use App\Repositories\Eloquent\EventRepository;
 use App\Repositories\Eloquent\IdempotencyKeyRepository;
@@ -62,6 +64,7 @@ class RepositoryServiceProvider extends ServiceProvider
         PaymentRepositoryInterface::class => PaymentRepository::class,
         PayoutRepositoryInterface::class => PayoutRepository::class,
         RefundRepositoryInterface::class => RefundRepository::class,
+        DisputeRepositoryInterface::class => DisputeRepository::class,
         TicketRepositoryInterface::class => TicketRepository::class,
         LedgerEntryRepositoryInterface::class => LedgerEntryRepository::class,
         EventReminderRepositoryInterface::class => EventReminderRepository::class,

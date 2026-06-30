@@ -211,3 +211,144 @@ endpoints:
     controller: null
     method: null
     route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/orders
+    metadata:
+      custom: []
+      groupName: Attendee
+      groupDescription: ''
+      subgroup: Orders
+      subgroupDescription: ''
+      title: 'List orders'
+      description: |-
+        Returns a paginated list of orders. Attendees see only their own orders;
+        admins see all orders and can filter them by status (e.g. for the dispute queue).
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_BEARER_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters:
+      status:
+        custom: []
+        name: status
+        description: 'Filter orders by status (e.g. pending, paid, refunded).'
+        required: false
+        example: paid
+        type: string
+        enumValues:
+          - pending
+          - paid
+          - partially_refunded
+          - refunded
+          - expired
+          - failed
+          - cancelled
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      per_page:
+        custom: []
+        name: per_page
+        description: 'Number of items per page. Must be at least 1. Must not be greater than 100.'
+        required: false
+        example: 15
+        type: integer
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+    cleanQueryParameters:
+      status: paid
+      per_page: 15
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 200
+        content: '{"success":true,"message":"Orders retrieved.","data":{"orders":[{"id":"01J000000000000DEMOORDER1","status":{"value":"paid","label":"Paid"},"total":75000,"currency":"BDT","commission_rate":"0.1000","created_at":"2026-06-30T10:05:00Z"}],"pagination":{"current_page":1,"per_page":15,"total":1,"last_page":1}},"errors":null}'
+        headers: []
+        description: Success
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: 'api/v1/orders/{id}'
+    metadata:
+      custom: []
+      groupName: Attendee
+      groupDescription: ''
+      subgroup: Orders
+      subgroupDescription: ''
+      title: 'Get order'
+      description: |-
+        Retrieve a single order with its items and holds. Attendees can only view
+        their own orders; admins can view any order.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_BEARER_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters:
+      id:
+        custom: []
+        name: id
+        description: 'The ID of the order.'
+        required: true
+        example: architecto
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+    cleanUrlParameters:
+      id: architecto
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 200
+        content: '{"success":true,"message":"Order retrieved.","data":{"order":{"id":"01J000000000000DEMOORDER1","status":{"value":"paid","label":"Paid"},"total":75000,"currency":"BDT","commission_rate":"0.1000","items":[{"id":"01J000000000000DEMOITEM1","ticket_type_id":"01J000000000000DEMOTICKET","quantity":3,"unit_price":25000}],"holds":[],"hold_expires_at":null,"created_at":"2026-06-30T10:05:00Z"}},"errors":null}'
+        headers: []
+        description: Success
+      -
+        custom: []
+        status: 403
+        content: '{"success":false,"message":"This action is unauthorized.","data":null,"errors":null}'
+        headers: []
+        description: Unauthorized
+      -
+        custom: []
+        status: 404
+        content: '{"success":false,"message":"Resource not found.","data":null,"errors":null}'
+        headers: []
+        description: 'Not Found'
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null

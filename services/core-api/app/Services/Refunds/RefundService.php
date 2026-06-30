@@ -2,14 +2,15 @@
 
 namespace App\Services\Refunds;
 
+use App\Enums\DisputeStatus;
 use App\Enums\OrderStatus;
 use App\Enums\RefundReason;
 use App\Enums\RefundStatus;
 use App\Exceptions\Refunds\RefundNotAllowedException;
-use App\Exceptions\Refunds\RefundNotEligibleException;
-use App\Jobs\ExecuteRefundJob;
+use App\Models\Dispute;
 use App\Models\Order;
 use App\Models\Refund;
+use App\Repositories\Contracts\DisputeRepositoryInterface;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
 use App\Repositories\Contracts\RefundRepositoryInterface;
@@ -20,8 +21,8 @@ use Illuminate\Support\Facades\DB;
 /**
  * Creates a refund REQUEST against a paid order (CLAUDE.md §F Refunds). This chunk decides eligibility +
  * the auto-derived amount and persists a `requested` refund row idempotently. It does **not** move money
- * or write any reversal ledger entry — execution is dispatched to {@see ExecuteRefundJob} and
- * lands in Chunk C.
+ * or write any reversal ledger entry — execution is dispatched to ExecuteRefundJob (from the controller)
+ * and lands in Chunk C.
  *
  * Idempotency mirrors checkout/charge (ADR-09): **one open refund per order**. The authoritative guard is
  * a `SELECT … FOR UPDATE` on the order row inside the transaction — a duplicate request (concurrent or
@@ -36,6 +37,7 @@ final class RefundService
         private readonly OrderRepositoryInterface $orders,
         private readonly PaymentRepositoryInterface $payments,
         private readonly RefundRepositoryInterface $refunds,
+        private readonly DisputeRepositoryInterface $disputes,
         private readonly RefundPolicy $policy,
     ) {}
 
@@ -45,7 +47,7 @@ final class RefundService
      *
      * @param  list<array{order_item_id: string, quantity: int}>|null  $items
      */
-    public function request(Order $order, RefundReason $reason, ?array $items = null): Refund
+    public function request(Order $order, RefundReason $reason, ?array $items = null): Refund|Dispute
     {
         $order = $this->orders->findForRefund($order->id)
             ?? throw new RefundNotAllowedException;
@@ -59,24 +61,29 @@ final class RefundService
         $payment = $this->payments->succeededForOrder($order->id)
             ?? throw new RefundNotAllowedException(__('api.refunds.no_payment'));
 
-        // Cheap idempotent short-circuit: an order may have only one open refund at a time. This avoids a
-        // transaction for the common duplicate; it is NOT the authoritative gate — that lives under the
-        // row lock below, where the open-refund check AND the cumulative-cap policy are (re-)evaluated.
-        $open = $this->refunds->findOpenForOrder($order->id);
-        if ($open !== null) {
-            return $open;
+        // Cheap idempotent short-circuit: an order may have only one open refund or dispute at a time.
+        $openRefund = $this->refunds->findOpenForOrder($order->id);
+        if ($openRefund !== null) {
+            return $openRefund;
         }
 
-        // Authoritative create: lock the order row so concurrent requests serialize. The open-refund
-        // check, the already-refunded total, and the policy decision are ALL evaluated under the lock so
-        // the cumulative-refund cap can never be computed from stale data (a second request that loses the
-        // race sees the now-existing open refund and returns it — no second row, no second job).
-        return DB::transaction(function () use ($order, $payment, $reason, $items): Refund {
+        $openDispute = $this->disputes->findOpenForOrder($order->id);
+        if ($openDispute !== null) {
+            return $openDispute;
+        }
+
+        // Authoritative create: lock the order row so concurrent requests serialize.
+        return DB::transaction(function () use ($order, $payment, $reason, $items): Refund|Dispute {
             $this->orders->lockForUpdate($order->id);
 
-            $existing = $this->refunds->findOpenForOrder($order->id);
-            if ($existing !== null) {
-                return $existing;
+            $existingRefund = $this->refunds->findOpenForOrder($order->id);
+            if ($existingRefund !== null) {
+                return $existingRefund;
+            }
+
+            $existingDispute = $this->disputes->findOpenForOrder($order->id);
+            if ($existingDispute !== null) {
+                return $existingDispute;
             }
 
             [$selectedBaseMinor, $eventStartsAt] = $this->resolveSelection($order, $items);
@@ -91,14 +98,23 @@ final class RefundService
             );
 
             if (! $decision->eligible) {
-                throw new RefundNotEligibleException($this->denialMessage($decision->denialReason));
+                if ($decision->denialReason === 'out_of_window') {
+                    // Out-of-policy: open a dispute for admin mediation (ADR-11).
+                    return $this->disputes->create([
+                        'order_id' => $order->id,
+                        'reason' => $reason->value,
+                        'status' => DisputeStatus::Open->value,
+                    ]);
+                }
+
+                throw new RefundNotAllowedException($this->denialMessage($decision->denialReason));
             }
 
             return $this->refunds->create([
                 'payment_id' => $payment->id,
-                'amount' => $decision->amountMinor,        // auto-derived minor units (never user-set)
+                'amount' => $decision->amountMinor,
                 'policy_applied' => $decision->policyApplied,
-                'status' => RefundStatus::Requested->value, // no money moved yet — execution is Chunk C
+                'status' => RefundStatus::Requested->value,
                 'reason' => $decision->reason->value,
             ]);
         });

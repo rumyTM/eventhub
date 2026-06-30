@@ -5,7 +5,7 @@ const ADMIN_LINKS = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/vendors", label: "Vendor Approvals" },
   { href: "/admin/payouts", label: "Payouts" },
-  { href: "/admin/refunds", label: "Refund Queue" },
+  { href: "/admin/refunds", label: "Dispute Queue" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

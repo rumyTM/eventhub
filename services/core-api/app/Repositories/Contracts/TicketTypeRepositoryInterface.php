@@ -41,4 +41,10 @@ interface TicketTypeRepositoryInterface
      * `UPDATE … SET quantity_sold = quantity_sold + N`. Never called at checkout (holds reserve there).
      */
     public function incrementSold(string $id, int $by): void;
+
+    /**
+     * Atomically return inventory on full-order refund: a single
+     * `UPDATE … SET quantity_sold = quantity_sold - N`, floored at 0 to guard against data races.
+     */
+    public function decrementSold(string $id, int $by): void;
 }

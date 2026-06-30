@@ -30,12 +30,19 @@ final class GenerateSalesReportService
     {
         $rows = $this->ledger->dailySalesByVendor($reportDate);
 
+        // Index discount rows by vendor_id for O(1) lookup below.
+        $discountByVendor = collect($this->ledger->dailyDiscountByVendor($reportDate))
+            ->pluck('total_discount', 'vendor_id')
+            ->all();
+
         $platformGross = 0;
         $platformCommission = 0;
         $platformTickets = 0;
+        $platformDiscount = 0;
 
         foreach ($rows as $row) {
             $net = $row['gross'] - $row['commission'];
+            $totalDiscount = (int) ($discountByVendor[$row['vendor_id']] ?? 0);
 
             $this->reports->upsertVendor(
                 reportDate: $reportDate,
@@ -44,11 +51,13 @@ final class GenerateSalesReportService
                 commission: $row['commission'],
                 net: $net,
                 ticketsSold: $row['tickets_sold'],
+                totalDiscount: $totalDiscount,
             );
 
             $platformGross += $row['gross'];
             $platformCommission += $row['commission'];
             $platformTickets += $row['tickets_sold'];
+            $platformDiscount += $totalDiscount;
         }
 
         // Always write the platform-wide row (even when zero, so the dashboard has a row for every day).
@@ -58,6 +67,7 @@ final class GenerateSalesReportService
             commission: $platformCommission,
             net: $platformGross - $platformCommission,
             ticketsSold: $platformTickets,
+            totalDiscount: $platformDiscount,
         );
 
         LogHelper::logEntry(LogHelper::LOG_INFO, 'GenerateSalesReport finished', [

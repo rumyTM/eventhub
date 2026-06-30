@@ -64,4 +64,9 @@ final class TicketTypeRepository implements TicketTypeRepositoryInterface
     {
         TicketType::query()->whereKey($id)->increment('quantity_sold', $by);
     }
+
+    public function decrementSold(string $id, int $by): void
+    {
+        TicketType::query()->whereKey($id)->decrement('quantity_sold', $by);
+    }
 }

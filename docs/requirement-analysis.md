@@ -158,6 +158,14 @@ For each: **Ambiguity → Assumption → Why.**
   as `policy% × selected line totals` (100/50/0% by time-to-event). "Partial" means a subset of tickets, not an
   arbitrary sum.** Why: keeping the money math server-side makes it untamperable (a client can't request an arbitrary
   value) and consistent with the time-based policy; the payment-service merely executes the computed amount.
+- **Refunded ticket fate & inventory return.** Ambiguity: when a refund is only 50% (the 24–48h band), is the ticket
+  still valid, and does its seat become resellable? → **A completed refund always voids the ticket in full (`valid →
+  refunded`, QR dead) and returns its seat to sellable inventory (`decrementSold`), regardless of the refund
+  percentage; the 100/50/0% policy governs only the money returned, never the ticket. The order is marked `refunded`
+  if the full order value was returned, else `partially_refunded` — a money-sense label; the ticket is still gone.**
+  Why: ticket fate and money owed are orthogonal — the attendee forfeits the seat by cancelling, and the % is a
+  cancellation penalty, not a half-ticket; returning the seat lets the vendor resell capacity the attendee won't use
+  (a 50% refund happens 24–48h out, when last-minute buyers still exist). See ADR-37.
 - **Seat selection.** Ambiguity: are seats named/assigned, or sold by count? → **Ticket *types* (VIP / general /
   early-bird) are sold per type by count; there is no seat map and no named/assigned seat selection — explicitly out
   of scope.** Why: count-based inventory is sufficient for the money-correctness core and avoids a seat-map data

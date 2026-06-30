@@ -28,7 +28,7 @@ class RedisNotificationPublisher implements NotificationPublisherContract
         string $idempotencyKey,
     ): void {
         $payload = $this->buildPayload($type, $recipient, $data, $idempotencyKey);
-        Redis::lpush(self::NOTIFICATIONS_QUEUE, json_encode($payload, JSON_THROW_ON_ERROR));
+        Redis::connection('notifications')->lpush(self::NOTIFICATIONS_QUEUE, json_encode($payload, JSON_THROW_ON_ERROR));
 
         LogHelper::logEntry(LogHelper::LOG_INFO, 'Notification job enqueued', [
             'type' => $type,
@@ -47,7 +47,7 @@ class RedisNotificationPublisher implements NotificationPublisherContract
         $payload = $this->buildPayload($type, $recipient, $data, $idempotencyKey);
         $payload['url'] = $url;
 
-        Redis::lpush(self::WEBHOOKS_QUEUE, json_encode($payload, JSON_THROW_ON_ERROR));
+        Redis::connection('notifications')->lpush(self::WEBHOOKS_QUEUE, json_encode($payload, JSON_THROW_ON_ERROR));
 
         LogHelper::logEntry(LogHelper::LOG_INFO, 'Webhook notification job enqueued', [
             'type' => $type,

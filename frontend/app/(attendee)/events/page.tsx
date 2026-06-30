@@ -40,9 +40,9 @@ export default function EventListingPage() {
             const minPrice = evt.ticket_types?.length
               ? Math.min(...evt.ticket_types.map((tt) => tt.price))
               : null;
-            const available = evt.ticket_types?.some(
-              (tt) => tt.quantity_total - tt.quantity_sold > 0,
-            );
+            const available =
+              evt.ticket_types == null ||
+              evt.ticket_types.some((tt) => tt.quantity_total - tt.quantity_sold > 0);
             return (
               <Card key={evt.id} className="flex flex-col">
                 <CardHeader>

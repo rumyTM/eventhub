@@ -42,4 +42,30 @@ interface LedgerEntryRepositoryInterface
      * @return array{gross: int, commission: int, adjustments: int, per_order: array<string, int>}
      */
     public function vendorPayoutAmounts(string $vendorId, array $eligibleOrderIds): array;
+
+    /**
+     * Per-vendor sum of group-discount savings for orders whose Sale ledger entry falls on `$reportDate`.
+     *
+     * Returns one entry per vendor that had discounted items on that date:
+     *   - vendor_id      : the vendor
+     *   - total_discount : SUM((original_price − unit_price) × quantity) in minor units
+     *
+     * Only lines where original_price > unit_price are included (zero-discount lines contribute 0).
+     * Joins ledger_entries → order_items so the date anchor matches the ledger (payment date), not
+     * the order-creation date.
+     *
+     * @return list<array{vendor_id: string, total_discount: int}>
+     */
+    public function dailyDiscountByVendor(string $reportDate): array;
+
+    /**
+     * Sum of in-flight refund amounts (status = requested|pending) for the given order IDs.
+     *
+     * These refunds have no ledger entry yet, so they are not captured in `adjustments`. Recording
+     * this amount as `reserved_refund` on the payout row surfaces the vendor's at-risk exposure to
+     * the admin before the refunds settle in a future cycle.
+     *
+     * @param  list<string>  $orderIds
+     */
+    public function pendingRefundAmountForOrders(array $orderIds): int;
 }

@@ -4,6 +4,7 @@ namespace App\Repositories\Contracts;
 
 use App\Models\Order;
 use App\Models\OrderItem;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 interface OrderRepositoryInterface
 {
@@ -64,4 +65,10 @@ interface OrderRepositoryInterface
      * @return list<string>
      */
     public function eligibleVendorIdsForPayout(): array;
+
+    /** Paginate orders for an attendee, sorted by created_at descending. */
+    public function paginateForAttendee(string $attendeeId, int $perPage): LengthAwarePaginator;
+
+    /** Paginate all orders with optional status filter, sorted by created_at descending. */
+    public function paginateAll(int $perPage, ?string $status = null): LengthAwarePaginator;
 }

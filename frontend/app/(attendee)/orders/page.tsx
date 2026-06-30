@@ -63,9 +63,18 @@ export default function OrderHistoryPage() {
                   <td className="px-4 py-2 text-right">{formatMoney(order.total, order.currency)}</td>
                   <td className="px-4 py-2 text-muted-foreground">{formatDate(order.created_at)}</td>
                   <td className="px-4 py-2 text-right">
-                    <Link href={`/orders/${order.id}`}>
-                      <Button variant="outline" size="sm">Details</Button>
-                    </Link>
+                    <div className="flex items-center justify-end gap-2">
+                      {order.status.value === "pending" &&
+                        order.hold_expires_at &&
+                        new Date(order.hold_expires_at) > new Date() && (
+                        <Link href={`/checkout/${order.id}`}>
+                          <Button size="sm">Pay Now</Button>
+                        </Link>
+                      )}
+                      <Link href={`/orders/${order.id}`}>
+                        <Button variant="outline" size="sm">Details</Button>
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -17,6 +17,7 @@ interface SalesReportRepositoryInterface
         int $commission,
         int $net,
         int $ticketsSold,
+        int $totalDiscount,
     ): SalesReport;
 
     /**
@@ -30,5 +31,6 @@ interface SalesReportRepositoryInterface
         int $commission,
         int $net,
         int $ticketsSold,
+        int $totalDiscount,
     ): SalesReport;
 }

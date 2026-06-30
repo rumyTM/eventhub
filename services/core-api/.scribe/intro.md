@@ -3,7 +3,7 @@
 REST API for the EventHub multi-vendor event ticketing and payout platform. Vendors create events and sell tickets; attendees browse and buy; admins approve vendors, manage refunds, and disburse payouts. Every financial operation is auditable, idempotent, and resilient to partial failure.
 
 <aside>
-    <strong>Base URL</strong>: <code>http://localhost</code>
+    <strong>Base URL</strong>: <code>http://localhost:8000</code>
 </aside>
 
 ## Authentication

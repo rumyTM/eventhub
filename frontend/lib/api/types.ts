@@ -24,7 +24,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "vendor" | "attendee";
+  role: EnumValue;
+  vendor?: { kyc_status: EnumValue; submitted_at: string | null } | null;
   created_at: string;
 }
 
@@ -76,6 +77,7 @@ export interface OrderItem {
   ticket_type_id: string;
   quantity: number;
   unit_price: number;
+  original_price: number | null;
 }
 
 export interface Hold {
@@ -84,6 +86,14 @@ export interface Hold {
   quantity: number;
   status: EnumValue;
   expires_at: string;
+}
+
+export interface RefundSummary {
+  id: string;
+  amount: number;
+  policy_applied: string;
+  status: EnumValue;
+  created_at: string;
 }
 
 export interface Order {
@@ -95,6 +105,9 @@ export interface Order {
   items?: OrderItem[];
   holds?: Hold[];
   hold_expires_at?: string | null;
+  payment_failed?: boolean;
+  has_pending_refund?: boolean;
+  latest_refund?: RefundSummary | null;
   created_at: string;
 }
 
@@ -109,6 +122,27 @@ export interface Refund {
   amount: number;
   policy_applied: string;
   status: EnumValue;
+}
+
+export interface DisputeItem {
+  id: string;
+  order_id: string;
+  status: EnumValue;
+  reason: string;
+  resolution?: string | null;
+  order?: {
+    id: string;
+    total: number;
+    currency: string;
+    status: EnumValue;
+    created_at: string;
+  };
+  created_at: string;
+}
+
+export interface DisputeListResponse {
+  disputes: DisputeItem[];
+  pagination: Pagination;
 }
 
 // ── Vendor / KYC ───────────────────────────────────────────────────────────────
@@ -136,6 +170,7 @@ export interface VendorListResponse {
 export interface Payout {
   id: string;
   vendor_id: string;
+  vendor?: { business_name: string };
   batch_id: string;
   currency: string;
   gross: number;
@@ -155,9 +190,10 @@ export interface PayoutListResponse {
 
 export interface PayoutPreview {
   gross: number;
-  commission_rate: number;
+  commission_rate?: number;
   commission: number;
   net: number;
+  payable: number;
   reserved_refund: number;
   currency: string;
   meets_threshold: boolean;

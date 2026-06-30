@@ -20,10 +20,12 @@ class OrderItem extends Model
         'ticket_type_id',
         'quantity',
         'unit_price',
+        'original_price',
     ];
 
     /**
      * `unit_price` is integer minor units, locked at hold creation.
+     * `original_price` is the per-unit price before any group discount (equals unit_price when no discount).
      *
      * @return array<string, string>
      */
@@ -32,6 +34,7 @@ class OrderItem extends Model
         return [
             'quantity' => 'integer',
             'unit_price' => 'integer',
+            'original_price' => 'integer',
         ];
     }
 

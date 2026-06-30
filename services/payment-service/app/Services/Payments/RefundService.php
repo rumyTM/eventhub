@@ -84,7 +84,18 @@ final class RefundService
         }
 
         try {
-            return DB::transaction(fn (): Refund => $this->persist($idempotencyKey, $requestHash, $payload, $payment->gateway->value, $payment->order_id));
+            return DB::transaction(function () use ($idempotencyKey, $requestHash, $payload, $payment): Refund {
+                // Lock the payment row and re-sum all non-failed refunds inside the transaction so two
+                // concurrent refund requests cannot both pass the single-refund guard and together exceed
+                // the original charge (defence-in-depth; core-api is the primary policy owner).
+                $locked = $this->payments->findForUpdate($payment->id);
+                $alreadyRefunded = $this->refunds->sumNonFailedForPayment($locked->id);
+                if ($alreadyRefunded + $payload['amount'] > $locked->amount) {
+                    throw new RefundExceedsChargeException;
+                }
+
+                return $this->persist($idempotencyKey, $requestHash, $payload, $locked->gateway->value, $locked->order_id);
+            });
         } catch (UniqueConstraintViolationException $e) {
             // A concurrent request used the same key first — resolve as a replay rather than 500.
             $seen = $this->idempotencyKeys->findByKey($idempotencyKey);

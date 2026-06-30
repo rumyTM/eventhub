@@ -14,6 +14,7 @@ final class SalesReportRepository implements SalesReportRepositoryInterface
         int $commission,
         int $net,
         int $ticketsSold,
+        int $totalDiscount,
     ): SalesReport {
         // Use whereDate() not direct equality: SQLite stores date columns as '2026-06-29 00:00:00'
         // while MySQL uses '2026-06-29', so `= '2026-06-29'` fails on SQLite in test environments.
@@ -30,6 +31,7 @@ final class SalesReportRepository implements SalesReportRepositoryInterface
             'commission' => $commission,
             'net' => $net,
             'tickets_sold' => $ticketsSold,
+            'total_discount' => $totalDiscount,
             'currency' => 'BDT',
         ])->save();
 
@@ -42,6 +44,7 @@ final class SalesReportRepository implements SalesReportRepositoryInterface
         int $commission,
         int $net,
         int $ticketsSold,
+        int $totalDiscount,
     ): SalesReport {
         // MySQL treats each NULL as distinct for unique indexes, so the DB-level dedup does not
         // apply to the platform-wide row. Explicit find-by-date + null vendor_id is the guard.
@@ -58,6 +61,7 @@ final class SalesReportRepository implements SalesReportRepositoryInterface
             'commission' => $commission,
             'net' => $net,
             'tickets_sold' => $ticketsSold,
+            'total_discount' => $totalDiscount,
             'currency' => 'BDT',
         ])->save();
 

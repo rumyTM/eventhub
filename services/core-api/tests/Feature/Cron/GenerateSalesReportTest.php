@@ -78,6 +78,7 @@ class GenerateSalesReportTest extends TestCase
             'ticket_type_id' => $ticketType->id,
             'quantity' => 2,
             'unit_price' => 50_000,
+            'original_price' => 50_000,
         ]);
 
         $this->createSaleLedgerEntry($vendor->id, $order->id, 100_000);
@@ -155,6 +156,59 @@ class GenerateSalesReportTest extends TestCase
         $this->assertNotNull($platformRow);
         $this->assertSame(0, $platformRow->gross);
         $this->assertSame(0, $platformRow->net);
+    }
+
+    // --- group-discount total_discount -------------------------------------------
+
+    public function test_total_discount_summed_from_discounted_group_order_items(): void
+    {
+        $vendor = Vendor::factory()->verified()->create();
+        $order = Order::factory()->paid()->create();
+        $ticketType = TicketType::factory()->create(['price' => 1000]);
+
+        // Two discounted lines: original_price=1000, unit_price=750, qty=4 → saving = 250*4 = 1000
+        // One undiscounted line: original_price=500, unit_price=500, qty=2 → saving = 0
+        OrderItem::create([
+            'order_id' => $order->id, 'ticket_type_id' => $ticketType->id,
+            'quantity' => 4, 'unit_price' => 750, 'original_price' => 1000,
+        ]);
+        OrderItem::create([
+            'order_id' => $order->id, 'ticket_type_id' => $ticketType->id,
+            'quantity' => 2, 'unit_price' => 500, 'original_price' => 500,
+        ]);
+
+        $this->createSaleLedgerEntry($vendor->id, $order->id, 5_000);
+        $this->createCommissionLedgerEntry($vendor->id, $order->id, -500);
+
+        $this->service->handle(self::DATE);
+
+        $vendorRow = SalesReport::whereDate('report_date', self::DATE)->where('vendor_id', $vendor->id)->first();
+        $this->assertNotNull($vendorRow);
+        // (1000 - 750) * 4 = 1000; (500 - 500) * 2 = 0  →  total = 1000
+        $this->assertSame(1_000, $vendorRow->total_discount);
+
+        $platformRow = SalesReport::whereDate('report_date', self::DATE)->whereNull('vendor_id')->first();
+        $this->assertSame(1_000, $platformRow->total_discount);
+    }
+
+    public function test_total_discount_is_zero_when_no_discounted_items(): void
+    {
+        $vendor = Vendor::factory()->verified()->create();
+        $order = Order::factory()->paid()->create();
+        $ticketType = TicketType::factory()->create(['price' => 50_000]);
+
+        OrderItem::create([
+            'order_id' => $order->id, 'ticket_type_id' => $ticketType->id,
+            'quantity' => 2, 'unit_price' => 50_000, 'original_price' => 50_000,
+        ]);
+
+        $this->createSaleLedgerEntry($vendor->id, $order->id, 100_000);
+        $this->createCommissionLedgerEntry($vendor->id, $order->id, -10_000);
+
+        $this->service->handle(self::DATE);
+
+        $vendorRow = SalesReport::whereDate('report_date', self::DATE)->where('vendor_id', $vendor->id)->first();
+        $this->assertSame(0, $vendorRow->total_discount);
     }
 
     // --- multi-vendor aggregation -------------------------------------------------

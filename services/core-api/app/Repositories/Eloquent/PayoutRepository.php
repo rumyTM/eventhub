@@ -48,6 +48,7 @@ final class PayoutRepository implements PayoutRepositoryInterface
     public function list(?string $status, ?string $vendorId, int $perPage = 20): LengthAwarePaginator
     {
         return Payout::query()
+            ->with('vendor:id,business_name')
             ->when($status !== null, fn ($q) => $q->where('status', $status))
             ->when($vendorId !== null, fn ($q) => $q->where('vendor_id', $vendorId))
             ->latest()
@@ -73,7 +74,12 @@ final class PayoutRepository implements PayoutRepositoryInterface
 
     public function markPaid(Payout $payout): Payout
     {
-        $payout->forceFill(['status' => PayoutStatus::Paid->value])->save();
+        // paid_at is write-once: set here and never touched again (used as a stable clawback window
+        // anchor instead of updated_at, which a processing→processing retry would push forward).
+        $payout->forceFill([
+            'status' => PayoutStatus::Paid->value,
+            'paid_at' => now(),
+        ])->save();
 
         return $payout;
     }

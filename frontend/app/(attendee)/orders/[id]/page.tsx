@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
+import { CreditCard } from "lucide-react";
 
 export default function OrderDetailPage({ params }: { params: { id: string } }) {
   const qc = useQueryClient();
@@ -26,8 +27,13 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
   const refundMutation = useMutation({
     mutationFn: () => ordersApi.refund(params.id, reason),
-    onSuccess: ({ refund }) => {
-      toast.success(`Refund processed: ${refund.status.label} — ${refund.policy_applied}`);
+    onSuccess: (result) => {
+      if ("dispute" in result) {
+        toast.info("Your request is outside the automatic refund window. A dispute has been opened — an admin will review it.");
+      } else {
+        const pct = result.refund.policy_applied;
+        toast.success(`Refund requested — ${pct}% policy applies. You'll receive a confirmation shortly.`);
+      }
       setRefundOpen(false);
       qc.invalidateQueries({ queryKey: ["order-detail", params.id] });
       qc.invalidateQueries({ queryKey: ["my-orders"] });
@@ -48,15 +54,41 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   if (!data) return null;
 
   const order = data.order;
-  const canRefund = order.status.value === "paid" || order.status.value === "partially_refunded";
+  const canRefund =
+    !order.has_pending_refund &&
+    (order.status.value === "paid" || order.status.value === "partially_refunded");
+  const canPay =
+    order.status.value === "pending" &&
+    !!order.hold_expires_at &&
+    new Date(order.hold_expires_at) > new Date();
 
   return (
     <div className="max-w-2xl space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Order Details</h1>
         <Link href="/orders" className="text-sm text-primary underline">← Back</Link>
       </div>
 
+      {/* Pay CTA — prominent, above the detail card */}
+      {canPay && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="flex items-center justify-between py-4">
+            <div>
+              <p className="font-medium text-blue-900">Payment pending</p>
+              <p className="text-sm text-blue-700">Complete your payment to confirm the tickets.</p>
+            </div>
+            <Link href={`/checkout/${order.id}`}>
+              <Button className="gap-2">
+                <CreditCard className="h-4 w-4" />
+                Complete Payment
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Order summary card */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -65,22 +97,53 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            {order.items?.map((item) => (
-              <div key={item.id} className="flex justify-between text-sm">
-                <span>Ticket × {item.quantity}</span>
-                <span>{formatMoney(item.unit_price * item.quantity, order.currency)}</span>
-              </div>
-            ))}
+          {/* Line items with discount breakdown */}
+          <div className="space-y-3">
+            {order.items?.map((item) => {
+              const hasDiscount = item.original_price !== null && item.original_price !== item.unit_price;
+              const discountPct = hasDiscount
+                ? Math.round((1 - item.unit_price / item.original_price!) * 100)
+                : 0;
+              const savedPerUnit = hasDiscount ? item.original_price! - item.unit_price : 0;
+
+              return (
+                <div key={item.id} className="space-y-1">
+                  <div className="flex items-start justify-between text-sm">
+                    <div>
+                      <span>Ticket × {item.quantity}</span>
+                      {hasDiscount && (
+                        <span className="ml-2 rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-700">
+                          {discountPct}% group discount
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div>{formatMoney(item.unit_price * item.quantity, order.currency)}</div>
+                      {hasDiscount && (
+                        <div className="text-xs text-muted-foreground line-through">
+                          {formatMoney(item.original_price! * item.quantity, order.currency)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {hasDiscount && (
+                    <p className="text-xs text-green-600">
+                      You saved {formatMoney(savedPerUnit * item.quantity, order.currency)}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
             <div className="flex justify-between border-t pt-2 font-bold">
               <span>Total</span>
               <span>{formatMoney(order.total, order.currency)}</span>
             </div>
           </div>
 
+          {/* Active holds */}
           {order.holds && order.holds.length > 0 && (
             <div>
-              <p className="mb-1 text-xs font-medium text-muted-foreground uppercase">Holds</p>
+              <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Holds</p>
               {order.holds.map((h) => (
                 <div key={h.id} className="flex justify-between text-xs text-muted-foreground">
                   <span>{h.status.label}</span>
@@ -99,6 +162,54 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           )}
         </CardContent>
       </Card>
+
+      {/* Refund summary — shown whenever a refund exists (any status) */}
+      {order.latest_refund && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Refund</CardTitle>
+              <Badge
+                variant={
+                  order.latest_refund.status.value === "completed"
+                    ? "default"
+                    : order.latest_refund.status.value === "failed"
+                    ? "destructive"
+                    : "secondary"
+                }
+              >
+                {order.latest_refund.status.label}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Amount refunded</span>
+              <span className="font-semibold">
+                {formatMoney(order.latest_refund.amount, order.currency)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Policy applied</span>
+              <span>
+                {order.latest_refund.policy_applied === "admin_override"
+                  ? "Admin override (100%)"
+                  : `${order.latest_refund.policy_applied}% of order total`}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Requested</span>
+              <span>{formatDate(order.latest_refund.created_at)}</span>
+            </div>
+            {(order.latest_refund.status.value === "requested" ||
+              order.latest_refund.status.value === "pending") && (
+              <p className="pt-1 text-xs text-muted-foreground">
+                Your refund is being processed. You will receive a confirmation once it is complete.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Dialog open={refundOpen} onOpenChange={setRefundOpen}>
         <DialogContent>

@@ -49,8 +49,17 @@ class InitiateChargeJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(ChargeOrderService $charges): void
     {
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:1] InitiateChargeJob — dispatched from queue, starting charge', [
+            'order_id' => $this->orderId,
+            'attempt' => $this->attempt,
+        ]);
+
         try {
             $charges->charge($this->orderId, $this->attempt);
+
+            LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:1] InitiateChargeJob — charge initiated, payment-service accepted', [
+                'order_id' => $this->orderId,
+            ]);
         } catch (RequestException $e) {
             // A 4xx is a permanent client-side failure (bad request, auth, or key conflict) — retrying
             // the identical call cannot succeed, so stop now rather than burn the retry budget. The

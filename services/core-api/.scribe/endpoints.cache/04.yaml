@@ -203,6 +203,7 @@ endpoints:
         enumValues:
           - attendee_requested
           - event_cancelled
+          - late_payment
         exampleWasSpecified: false
         nullable: false
         deprecated: false

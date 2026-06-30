@@ -84,9 +84,8 @@ class CheckoutTest extends TestCase
         $this->assertDatabaseHas('order_items', ['ticket_type_id' => $tt->id, 'quantity' => 2, 'unit_price' => 50000]);
         $this->assertSame(0, $tt->fresh()->quantity_sold);
 
-        // A pending order kicks off the charge off the request path.
-        $orderId = $response->json('data.order.id');
-        Queue::assertPushed(InitiateChargeJob::class, fn (InitiateChargeJob $job): bool => $job->orderId === $orderId);
+        // Payment is NOT initiated at checkout — the attendee calls POST /orders/{id}/pay explicitly.
+        Queue::assertNotPushed(InitiateChargeJob::class);
     }
 
     public function test_commission_rate_snapshot_reads_from_settings_when_present(): void
@@ -113,6 +112,35 @@ class CheckoutTest extends TestCase
         $this->checkout('key-bundle', [['ticket_type_id' => $tt->id, 'quantity' => 4]])
             ->assertCreated()
             ->assertJsonPath('data.order.total', 3000);
+    }
+
+    public function test_group_bundle_discount_reported_on_order_item(): void
+    {
+        $this->actingAttendee();
+        $tt = $this->ticketType([
+            'price' => 1000, 'quantity_total' => 100, 'group_size' => 4, 'group_discount' => 0.25,
+        ]);
+
+        // price=1000, discount=25% → unit_price=750; original_price=1000; qty=4
+        // discount.per_unit = 250, discount.line_total = 1000, discount.percent = 25
+        $response = $this->checkout('key-discount-report', [['ticket_type_id' => $tt->id, 'quantity' => 4]])
+            ->assertCreated();
+
+        $response->assertJsonPath('data.order.items.0.original_price', 1000)
+            ->assertJsonPath('data.order.items.0.unit_price', 750)
+            ->assertJsonPath('data.order.items.0.discount.per_unit', 250)
+            ->assertJsonPath('data.order.items.0.discount.line_total', 1000)
+            ->assertJsonPath('data.order.items.0.discount.percent', 25);
+
+        // No discount when below group size — discount block should be all zeros.
+        $response2 = $this->checkout('key-no-discount', [['ticket_type_id' => $tt->id, 'quantity' => 3]])
+            ->assertCreated();
+
+        $response2->assertJsonPath('data.order.items.0.original_price', 1000)
+            ->assertJsonPath('data.order.items.0.unit_price', 1000)
+            ->assertJsonPath('data.order.items.0.discount.per_unit', 0)
+            ->assertJsonPath('data.order.items.0.discount.line_total', 0)
+            ->assertJsonPath('data.order.items.0.discount.percent', 0);
     }
 
     public function test_group_bundle_discount_not_applied_below_group_size(): void
@@ -287,6 +315,37 @@ class CheckoutTest extends TestCase
             ->where('status', HoldStatus::Active->value)->sum('quantity');
         $this->assertLessThanOrEqual($tt->fresh()->quantity_total, $activeHeld + $tt->fresh()->quantity_sold);
         $this->assertSame(3, $activeHeld);
+    }
+
+    public function test_last_ticket_is_never_oversold(): void
+    {
+        // quantity_total=1: exactly one of N checkout attempts may claim the last seat.
+        // Proves the full lock chain (cache lock → FOR UPDATE row lock → availability accounting)
+        // under hold-exhaustion. The winning request holds the seat; all others must receive 409.
+        $this->actingAttendee();
+        $tt = $this->ticketType(['quantity_total' => 1]);
+
+        $statuses = [];
+        foreach (range(1, 5) as $i) {
+            $statuses[] = $this->checkout("last-seat-{$i}", [['ticket_type_id' => $tt->id, 'quantity' => 1]])
+                ->getStatusCode();
+        }
+
+        $this->assertSame(1, count(array_filter($statuses, fn ($s) => $s === 201)),
+            'Exactly one checkout must succeed for the last ticket');
+        $this->assertSame(4, count(array_filter($statuses, fn ($s) => $s === 409)),
+            'All remaining attempts must be rejected 409');
+
+        $tt->refresh();
+        $activeHeld = (int) TicketHold::query()
+            ->where('ticket_type_id', $tt->id)
+            ->where('status', HoldStatus::Active->value)
+            ->sum('quantity');
+
+        $this->assertLessThanOrEqual($tt->quantity_total, $activeHeld + $tt->quantity_sold,
+            'Invariant: held + sold must never exceed quantity_total');
+        $this->assertSame(1, $activeHeld + $tt->quantity_sold,
+            'All quantity_total=1 units are accounted for exactly once');
     }
 
     public function test_checkout_cannot_proceed_while_the_ticket_type_lock_is_held(): void

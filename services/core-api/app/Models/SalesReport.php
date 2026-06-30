@@ -25,6 +25,7 @@ class SalesReport extends Model
         'gross',
         'commission',
         'net',
+        'total_discount',
         'currency',
     ];
 
@@ -41,6 +42,7 @@ class SalesReport extends Model
             'gross' => 'integer',
             'commission' => 'integer',
             'net' => 'integer',
+            'total_discount' => 'integer',
         ];
     }
 

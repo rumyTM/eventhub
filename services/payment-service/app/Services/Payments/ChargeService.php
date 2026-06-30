@@ -6,6 +6,7 @@ use App\Enums\PaymentStatus;
 use App\Enums\TransactionType;
 use App\Exceptions\Payments\IdempotencyKeyConflictException;
 use App\Gateways\GatewayManager;
+use App\Helpers\LogHelper;
 use App\Jobs\DeliverChargeResultJob;
 use App\Models\Payment;
 use App\Repositories\Contracts\IdempotencyKeyRepositoryInterface;
@@ -78,10 +79,21 @@ final class ChargeService
     public function scheduleResolution(Payment $payment): void
     {
         if ($payment->status->isTerminal()) {
+            LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:2b] ChargeService::scheduleResolution — payment already terminal, skipping', [
+                'payment_id' => $payment->id,
+                'status' => $payment->status->value,
+            ]);
+
             return;
         }
 
         $delaySeconds = $this->gateways->make($payment->gateway->value)->delaySeconds();
+
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:2b] ChargeService::scheduleResolution — scheduling DeliverChargeResultJob', [
+            'payment_id' => $payment->id,
+            'gateway' => $payment->gateway->value,
+            'delay_seconds' => $delaySeconds,
+        ]);
 
         DeliverChargeResultJob::dispatch($payment->id)
             ->delay(Carbon::now()->addSeconds($delaySeconds));

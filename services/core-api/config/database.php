@@ -179,6 +179,19 @@ return [
             'database' => env('REDIS_CACHE_DB', '1'),
         ],
 
+        // Dedicated connection for inter-service notification/webhook queues.
+        // The notification-service consumes these keys without any prefix, so we
+        // explicitly disable the global APP_NAME-derived prefix here.
+        'notifications' => [
+            'url' => env('REDIS_URL'),
+            'host' => env('REDIS_HOST', '127.0.0.1'),
+            'username' => env('REDIS_USERNAME'),
+            'password' => env('REDIS_PASSWORD'),
+            'port' => env('REDIS_PORT', '6379'),
+            'database' => env('REDIS_DB', '0'),
+            'options' => ['prefix' => ''],
+        ],
+
     ],
 
 ];

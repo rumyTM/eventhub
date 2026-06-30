@@ -35,6 +35,46 @@ export default function VendorDashboard() {
         </Button>
       </div>
 
+      {user?.vendor?.kyc_status?.value === "pending" && !user.vendor.submitted_at && (
+        <Card className="border-yellow-300 bg-yellow-50">
+          <CardContent className="flex items-start justify-between py-4">
+            <div>
+              <p className="font-medium text-yellow-900">KYC verification required</p>
+              <p className="mt-1 text-sm text-yellow-800">
+                Submit your business documents to unlock event publishing and payouts.
+              </p>
+            </div>
+            <Button asChild size="sm" className="ml-4 shrink-0 bg-yellow-700 hover:bg-yellow-800">
+              <Link href="/vendor/kyc">Submit KYC</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {user?.vendor?.kyc_status?.value === "pending" && user.vendor.submitted_at && (
+        <Card className="border-blue-300 bg-blue-50">
+          <CardContent className="py-4">
+            <p className="font-medium text-blue-900">Documents submitted — awaiting admin review</p>
+            <p className="mt-1 text-sm text-blue-800">
+              Your KYC application is under review. You can draft events now, but publishing and
+              payouts will be unlocked once an admin approves your account.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {user?.vendor?.kyc_status?.value === "rejected" && (
+        <Card className="border-red-300 bg-red-50">
+          <CardContent className="py-4">
+            <p className="font-medium text-red-900">KYC verification rejected</p>
+            <p className="mt-1 text-sm text-red-800">
+              Your KYC application was rejected. You cannot publish events or receive payouts.
+              Please contact support.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Total Events</CardTitle></CardHeader>

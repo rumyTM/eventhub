@@ -147,7 +147,11 @@ class PurchaseLoopEndToEndTest extends TestCase
             ->assertJsonPath('data.order.status.value', 'pending')
             ->json('data.order.id');
 
-        // Checkout kicks off the charge off the request path.
+        // Payment is NOT initiated automatically — the attendee calls POST /orders/{id}/pay explicitly.
+        Queue::assertNotPushed(InitiateChargeJob::class);
+
+        // Attendee submits payment; this queues the charge job.
+        $this->postJson("/api/v1/orders/{$orderId}/pay")->assertOk();
         Queue::assertPushed(InitiateChargeJob::class, fn (InitiateChargeJob $job): bool => $job->orderId === $orderId);
 
         return Order::findOrFail($orderId);

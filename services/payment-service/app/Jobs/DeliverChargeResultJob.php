@@ -60,8 +60,18 @@ class DeliverChargeResultJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(ChargeService $charges): void
     {
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:3] DeliverChargeResultJob — picked up from queue, resolving charge', [
+            'payment_id' => $this->paymentId,
+        ]);
+
         // Persist the outcome first (idempotent) — a retry re-enters here as a no-op resolve.
         $payment = $charges->resolve($this->paymentId);
+
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:3] DeliverChargeResultJob — charge resolved by gateway', [
+            'payment_id' => $this->paymentId,
+            'status' => $payment->status->value,
+            'gateway_ref' => $payment->gateway_ref,
+        ]);
 
         $payload = $this->payload($payment);
         $body = (string) json_encode($payload);
@@ -72,8 +82,16 @@ class DeliverChargeResultJob implements ShouldBeUnique, ShouldQueue
 
         $callbackUrl = (string) config('services.core_api.callback_url');
 
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:3] DeliverChargeResultJob — posting signed webhook to core-api', [
+            'callback_url' => $callbackUrl,
+            'order_id' => $payment->order_id,
+            'status' => $payment->status->value,
+            'bearer_set' => $bearer !== '',
+            'secret_set' => config('services.core_api.webhook_secret') !== '',
+        ]);
+
         // Send the exact signed bytes; ->throw() turns a non-2xx into a retryable failure.
-        Http::withBody($body, 'application/json')
+        $response = Http::withBody($body, 'application/json')
             ->withToken($bearer)
             ->withHeaders([
                 'X-Signature' => $signature,
@@ -81,6 +99,11 @@ class DeliverChargeResultJob implements ShouldBeUnique, ShouldQueue
             ])
             ->post($callbackUrl)
             ->throw();
+
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:3] DeliverChargeResultJob — webhook delivered successfully', [
+            'payment_id' => $this->paymentId,
+            'http_status' => $response->status(),
+        ]);
     }
 
     /**

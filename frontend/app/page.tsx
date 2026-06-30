@@ -14,8 +14,8 @@ export default function RootPage() {
       router.replace("/login");
       return;
     }
-    if (user.role === "admin") router.replace("/admin");
-    else if (user.role === "vendor") router.replace("/vendor");
+    if (user.role.value === "admin") router.replace("/admin");
+    else if (user.role.value === "vendor") router.replace("/vendor");
     else router.replace("/events");
   }, [user, loading, router]);
 

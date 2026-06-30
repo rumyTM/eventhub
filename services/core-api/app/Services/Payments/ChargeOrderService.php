@@ -5,6 +5,7 @@ namespace App\Services\Payments;
 use App\Contracts\PaymentServiceContract;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Helpers\LogHelper;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
 
@@ -37,6 +38,11 @@ final class ChargeOrderService
 
         // Order vanished or already resolved — idempotent no-op (never re-charge a settled order).
         if ($order === null || $order->status !== OrderStatus::Pending) {
+            LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:2] ChargeOrderService — order not pending, skipping charge', [
+                'order_id' => $orderId,
+                'status' => $order?->status->value ?? 'not_found',
+            ]);
+
             return;
         }
 
@@ -50,6 +56,16 @@ final class ChargeOrderService
             'currency' => $order->currency,
         ]);
 
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:2] ChargeOrderService — calling payment-service', [
+            'order_id' => $orderId,
+            'payment_row_id' => $payment->id,
+            'gateway' => $payment->gateway,
+            'amount' => $payment->amount,
+            'currency' => $payment->currency,
+            'idempotency_key' => $payment->idempotency_key,
+            'payment_service_url' => config('services.payment.base_url'),
+        ]);
+
         $result = $this->paymentService->createCharge(
             orderId: $order->id,
             gateway: $payment->gateway,
@@ -57,6 +73,12 @@ final class ChargeOrderService
             currency: $payment->currency,
             idempotencyKey: $payment->idempotency_key,
         );
+
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:2] ChargeOrderService — payment-service responded', [
+            'order_id' => $orderId,
+            'payment_ref' => $result->ref,
+            'status' => $result->status,
+        ]);
 
         if ($result->ref !== null) {
             $this->payments->recordExternalRef($payment, $result->ref);

@@ -29,7 +29,7 @@ export default function AdminPayoutsPage() {
   const buildMutation = useMutation({
     mutationFn: () => payoutsApi.build({}),
     onSuccess: (res) => {
-      toast.success(`Payout batch built: ${res.payouts_created} payout(s) created`);
+      toast.success(`Payout batch built: ${res.count} payout(s) created`);
       qc.invalidateQueries({ queryKey: ["admin-payouts"] });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Failed to build batch"),
@@ -80,7 +80,7 @@ export default function AdminPayoutsPage() {
               {payouts.map((p) => (
                 <tr key={p.id} className="border-t hover:bg-muted/30">
                   <td className="px-4 py-2 font-mono text-xs">{p.batch_id}</td>
-                  <td className="px-4 py-2 text-xs font-mono">{p.vendor_id.slice(-8)}</td>
+                  <td className="px-4 py-2">{p.vendor?.business_name ?? p.vendor_id}</td>
                   <td className="px-4 py-2 text-right">{formatMoney(p.gross)}</td>
                   <td className="px-4 py-2 text-right">{formatMoney(p.net)}</td>
                   <td className="px-4 py-2 text-right font-medium">{formatMoney(p.payable)}</td>

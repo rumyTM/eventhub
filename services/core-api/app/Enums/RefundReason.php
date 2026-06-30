@@ -12,12 +12,15 @@ enum RefundReason: string
 {
     case AttendeeRequested = 'attendee_requested';
     case EventCancelled = 'event_cancelled';
+    /** Charge confirmed after all holds expired — system auto-refund, no attendee action required. */
+    case LatePayment = 'late_payment';
 
     public function label(): string
     {
         return match ($this) {
             self::AttendeeRequested => 'Attendee requested',
             self::EventCancelled => 'Event cancelled',
+            self::LatePayment => 'Auto-refund (late payment)',
         };
     }
 

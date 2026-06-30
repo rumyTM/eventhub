@@ -30,6 +30,8 @@ export default function RegisterPage() {
         fd.get("email") as string,
         fd.get("password") as string,
         role,
+        role === "vendor" ? (fd.get("business_name") as string) : undefined,
+        (fd.get("phone") as string) || undefined,
       );
       router.replace("/");
     } catch (err) {
@@ -85,6 +87,32 @@ export default function RegisterPage() {
                 <SelectItem value="vendor">Vendor</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          {role === "vendor" && (
+            <div className="space-y-2">
+              <Label htmlFor="business_name">Business name</Label>
+              <Input
+                id="business_name"
+                name="business_name"
+                placeholder="Acme Events Ltd"
+                required
+              />
+              {errors.business_name && (
+                <p className="text-xs text-destructive">{errors.business_name}</p>
+              )}
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="phone">
+              Phone <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              id="phone"
+              name="phone"
+              type="tel"
+              placeholder="+8801711000000"
+            />
+            {errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
           </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-3">

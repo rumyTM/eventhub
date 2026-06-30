@@ -6,10 +6,13 @@ use App\Actions\Payouts\CalculateCommission;
 use App\Enums\LedgerEntryType;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\RefundReason;
+use App\Enums\RefundStatus;
 use App\Enums\TicketStatus;
 use App\Exceptions\Payments\OrderSettlementIntegrityException;
 use App\Exceptions\Payments\WebhookAmountMismatchException;
 use App\Helpers\LogHelper;
+use App\Jobs\ExecuteRefundJob;
 use App\Jobs\SendOrderConfirmationJob;
 use App\Jobs\SendVendorOrderWebhookJob;
 use App\Jobs\SendVendorSoldOutWebhookJob;
@@ -17,6 +20,7 @@ use App\Models\Order;
 use App\Repositories\Contracts\LedgerEntryRepositoryInterface;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
+use App\Repositories\Contracts\RefundRepositoryInterface;
 use App\Repositories\Contracts\TicketHoldRepositoryInterface;
 use App\Repositories\Contracts\TicketRepositoryInterface;
 use App\Repositories\Contracts\TicketTypeRepositoryInterface;
@@ -60,6 +64,7 @@ final class ProcessPaymentWebhookService
         private readonly TicketTypeRepositoryInterface $ticketTypes,
         private readonly LedgerEntryRepositoryInterface $ledger,
         private readonly CalculateCommission $calculateCommission,
+        private readonly RefundRepositoryInterface $refunds,
     ) {}
 
     /**
@@ -67,11 +72,25 @@ final class ProcessPaymentWebhookService
      */
     public function handle(array $payload): void
     {
-        $settled = DB::transaction(function () use ($payload): bool {
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:5] ProcessPaymentWebhookService — webhook received, starting processing', [
+            'order_id' => $payload['order_id'],
+            'payment_ref' => $payload['payment_ref'],
+            'status' => $payload['status']['value'],
+            'amount' => $payload['amount'],
+            'currency' => $payload['currency'],
+        ]);
+
+        $lateRefundId = null;
+        $settled = DB::transaction(function () use ($payload, &$lateRefundId): bool {
             $order = $this->orders->lockForUpdate($payload['order_id']);
 
             // (1) Unknown order, or (2) already terminal — idempotent no-op (no double anything).
             if ($order === null || $order->status !== OrderStatus::Pending) {
+                LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:5] ProcessPaymentWebhookService — order not pending (no-op)', [
+                    'order_id' => $payload['order_id'],
+                    'status' => $order?->status->value ?? 'not_found',
+                ]);
+
                 return false;
             }
 
@@ -96,24 +115,39 @@ final class ProcessPaymentWebhookService
             // checkout-initiation, so a legitimate success always has a matching row. A miss means an
             // unreconcilable/foreign callback — log and no-op rather than mark an order paid blind.
             if ($payment === null) {
-                LogHelper::logEntry(LogHelper::LOG_WARNING, 'Webhook success with no matching payment row', [
+                LogHelper::logEntry(LogHelper::LOG_WARNING, '[PAYMENT-CHAIN:5] Webhook success with no matching payment row — check external_ref was recorded', [
                     'order_id' => $order->id,
+                    'payment_ref' => $payload['payment_ref'],
                 ]);
 
                 return false;
             }
+
+            LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:5] ProcessPaymentWebhookService — payment row matched, marking succeeded', [
+                'order_id' => $order->id,
+                'payment_id' => $payment->id,
+            ]);
 
             // Faithful to the gateway result: the charge succeeded, record it regardless of fulfilment.
             $this->payments->markStatus($payment, PaymentStatus::Succeeded);
 
             // The reservation must still be live. If every hold lapsed before this (slow gateway/late
             // webhook), its seats were already freed at the 15-min mark — issuing now would oversell.
-            // Leave the order pending for ReleaseExpiredHolds to expire; the (already-recorded) success
-            // becomes a refund concern in a later slice. Idempotent: a replay re-converts nothing.
+            // Expire the order immediately and queue a full auto-refund; the already-captured charge
+            // must be returned to the attendee. Idempotent: a replay finds the order non-pending (guard 2).
             if ($this->holds->convertActiveForOrder($order->id) === 0) {
-                LogHelper::logEntry(LogHelper::LOG_WARNING, 'Paid charge arrived after hold expiry — not issuing tickets', [
+                LogHelper::logEntry(LogHelper::LOG_WARNING, 'Paid charge arrived after hold expiry — expiring order and queuing auto-refund', [
                     'order_id' => $order->id,
                 ]);
+                $this->orders->markPendingExpired([$order->id]);
+                $refund = $this->refunds->create([
+                    'payment_id' => $payment->id,
+                    'status' => RefundStatus::Requested->value,
+                    'amount' => $order->total,
+                    'policy_applied' => '100',
+                    'reason' => RefundReason::LatePayment->value,
+                ]);
+                $lateRefundId = $refund->id;
 
                 return false;
             }
@@ -124,8 +158,22 @@ final class ProcessPaymentWebhookService
             return true;
         });
 
+        // Late-payment auto-refund: dispatch after the transaction commits so the refund row exists.
+        if ($lateRefundId !== null) {
+            ExecuteRefundJob::dispatch($lateRefundId);
+        }
+
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:5] ProcessPaymentWebhookService — processing complete', [
+            'order_id' => $payload['order_id'],
+            'settled' => $settled,
+            'late_refund_queued' => $lateRefundId !== null,
+        ]);
+
         // Off the request path, and only once tickets are actually issued (never on replay/failure).
         if ($settled) {
+            LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:5] ProcessPaymentWebhookService — ORDER MARKED PAID, tickets issued, queuing confirmation', [
+                'order_id' => $payload['order_id'],
+            ]);
             SendOrderConfirmationJob::dispatch($payload['order_id']);
             SendVendorOrderWebhookJob::dispatch($payload['order_id']);
             SendVendorSoldOutWebhookJob::dispatch($payload['order_id']);

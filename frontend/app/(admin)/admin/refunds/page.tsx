@@ -8,79 +8,107 @@ import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
-import type { Order } from "@/lib/api";
+import type { DisputeItem } from "@/lib/api";
 
-export default function AdminRefundsPage() {
+type Action = "resolve" | "reject";
+
+export default function AdminDisputesPage() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [reason, setReason] = useState("");
+  const [selected, setSelected] = useState<DisputeItem | null>(null);
+  const [action, setAction] = useState<Action>("resolve");
+  const [resolution, setResolution] = useState("");
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["admin-disputed-orders", page],
-    queryFn: () => adminApi.disputedOrders(page),
+    queryKey: ["admin-disputes", page],
+    queryFn: () => adminApi.listDisputes(page),
   });
 
-  const refundMutation = useMutation({
-    mutationFn: ({ orderId, reason }: { orderId: string; reason: string }) =>
-      adminApi.initiateRefund(orderId, reason),
+  const resolveMutation = useMutation({
+    mutationFn: ({ id, resolution }: { id: string; resolution: string }) =>
+      adminApi.resolveDispute(id, resolution || undefined),
     onSuccess: () => {
-      toast.success("Refund initiated");
-      setSelectedOrder(null);
-      setReason("");
-      qc.invalidateQueries({ queryKey: ["admin-disputed-orders"] });
+      toast.success("Dispute approved — refund queued.");
+      closeDialog();
+      qc.invalidateQueries({ queryKey: ["admin-disputes"] });
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Failed to initiate refund"),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Failed to resolve dispute"),
   });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ id, resolution }: { id: string; resolution: string }) =>
+      adminApi.rejectDispute(id, resolution),
+    onSuccess: () => {
+      toast.success("Dispute rejected.");
+      closeDialog();
+      qc.invalidateQueries({ queryKey: ["admin-disputes"] });
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Failed to reject dispute"),
+  });
+
+  const closeDialog = () => { setSelected(null); setResolution(""); };
+  const openDialog = (d: DisputeItem, a: Action) => { setSelected(d); setAction(a); setResolution(""); };
+
+  const isPending = resolveMutation.isPending || rejectMutation.isPending;
+
+  const submit = () => {
+    if (!selected) return;
+    if (action === "resolve") resolveMutation.mutate({ id: selected.id, resolution });
+    else rejectMutation.mutate({ id: selected.id, resolution });
+  };
 
   if (isLoading) return <LoadingSpinner />;
   if (error) return <ErrorDisplay error={error} retry={refetch} />;
 
-  const orders = data?.orders ?? [];
+  const disputes = data?.disputes ?? [];
   const pagination = data?.pagination;
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Dispute / Refund Queue</h1>
+      <h1 className="text-2xl font-bold">Dispute Queue</h1>
       <p className="text-sm text-muted-foreground">
-        Orders in dispute status are listed here for admin review and manual refund initiation.
+        Out-of-policy refund requests submitted by attendees inside the {"<"}24 h window. Approve to
+        issue a full refund override, or reject to deny with a reason.
       </p>
 
-      {orders.length === 0 ? (
-        <EmptyState message="No disputed orders in the queue." />
+      {disputes.length === 0 ? (
+        <EmptyState message="No open disputes." />
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm">
             <thead className="bg-muted">
               <tr>
-                <th className="px-4 py-2 text-left">Order ID</th>
-                <th className="px-4 py-2 text-left">Status</th>
-                <th className="px-4 py-2 text-right">Total</th>
-                <th className="px-4 py-2 text-left">Created</th>
+                <th className="px-4 py-2 text-left">Dispute ID</th>
+                <th className="px-4 py-2 text-left">Order</th>
+                <th className="px-4 py-2 text-right">Order Total</th>
+                <th className="px-4 py-2 text-left">Reason</th>
+                <th className="px-4 py-2 text-left">Opened</th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => (
-                <tr key={o.id} className="border-t hover:bg-muted/30">
-                  <td className="px-4 py-2 font-mono text-xs">{o.id.slice(-12)}</td>
-                  <td className="px-4 py-2">
-                    <Badge variant="warning">{o.status.label}</Badge>
-                  </td>
-                  <td className="px-4 py-2 text-right">{formatMoney(o.total, o.currency)}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{formatDate(o.created_at)}</td>
+              {disputes.map((d) => (
+                <tr key={d.id} className="border-t hover:bg-muted/30">
+                  <td className="px-4 py-2 font-mono text-xs">{d.id.slice(-8)}</td>
+                  <td className="px-4 py-2 font-mono text-xs">{d.order_id.slice(-8)}</td>
                   <td className="px-4 py-2 text-right">
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => { setSelectedOrder(o); setReason(""); }}
-                    >
-                      Initiate Refund
-                    </Button>
+                    {d.order ? formatMoney(d.order.total, d.order.currency) : "—"}
+                  </td>
+                  <td className="px-4 py-2 capitalize">{d.reason.replace(/_/g, " ")}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{formatDate(d.created_at)}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="default" onClick={() => openDialog(d, "resolve")}>
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => openDialog(d, "reject")}>
+                        Reject
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -91,40 +119,66 @@ export default function AdminRefundsPage() {
 
       {pagination && pagination.last_page > 1 && (
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+            Previous
+          </Button>
           <span className="self-center text-sm">{page} / {pagination.last_page}</span>
-          <Button variant="outline" size="sm" disabled={page >= pagination.last_page} onClick={() => setPage(p => p + 1)}>Next</Button>
+          <Button variant="outline" size="sm" disabled={page >= pagination.last_page} onClick={() => setPage(p => p + 1)}>
+            Next
+          </Button>
         </div>
       )}
 
-      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
+      <Dialog open={!!selected} onOpenChange={() => !isPending && closeDialog()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Initiate Admin Refund — Order {selectedOrder?.id.slice(-8)}</DialogTitle>
+            <DialogTitle>
+              {action === "resolve" ? "Approve Refund" : "Reject Dispute"} — Order{" "}
+              {selected?.order_id.slice(-8)}
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Total: <strong>{selectedOrder ? formatMoney(selectedOrder.total, selectedOrder.currency) : "—"}</strong>
-            </p>
-            <Label>Reason</Label>
-            <Textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Reason for admin-initiated refund…"
-              rows={3}
-            />
+          <div className="space-y-3">
+            {action === "resolve" ? (
+              <p className="text-sm text-muted-foreground">
+                A full refund of{" "}
+                <strong>
+                  {selected?.order ? formatMoney(selected.order.total, selected.order.currency) : "—"}
+                </strong>{" "}
+                will be issued as an admin override. The attendee will be notified.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No refund will be issued. Provide a reason for the attendee.
+              </p>
+            )}
+            <div className="space-y-2">
+              <Label>{action === "resolve" ? "Resolution note (optional)" : "Reason (required)"}</Label>
+              <Textarea
+                value={resolution}
+                onChange={(e) => setResolution(e.target.value)}
+                placeholder={
+                  action === "resolve"
+                    ? "Optional note for internal records…"
+                    : "Explain why the refund request was denied…"
+                }
+                rows={3}
+              />
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSelectedOrder(null)}>Cancel</Button>
+            <Button variant="outline" onClick={closeDialog} disabled={isPending}>
+              Cancel
+            </Button>
             <Button
-              variant="destructive"
-              disabled={!reason.trim() || refundMutation.isPending}
-              onClick={() => {
-                if (selectedOrder)
-                  refundMutation.mutate({ orderId: selectedOrder.id, reason });
-              }}
+              variant={action === "resolve" ? "default" : "destructive"}
+              disabled={isPending || (action === "reject" && !resolution.trim())}
+              onClick={submit}
             >
-              {refundMutation.isPending ? "Processing…" : "Confirm Refund"}
+              {isPending
+                ? "Processing…"
+                : action === "resolve"
+                ? "Confirm Approve"
+                : "Confirm Reject"}
             </Button>
           </DialogFooter>
         </DialogContent>

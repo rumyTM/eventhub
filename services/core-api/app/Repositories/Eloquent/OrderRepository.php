@@ -8,6 +8,7 @@ use App\Enums\PayoutStatus;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Repositories\Contracts\OrderRepositoryInterface;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 final class OrderRepository implements OrderRepositoryInterface
 {
@@ -118,5 +119,25 @@ final class OrderRepository implements OrderRepositoryInterface
             ->distinct()
             ->pluck('events.vendor_id')
             ->all();
+    }
+
+    public function paginateForAttendee(string $attendeeId, int $perPage): LengthAwarePaginator
+    {
+        return Order::query()
+            ->where('attendee_id', $attendeeId)
+            ->with('holds')
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    public function paginateAll(int $perPage, ?string $status = null): LengthAwarePaginator
+    {
+        $query = Order::query()->orderBy('created_at', 'desc');
+
+        if ($status !== null) {
+            $query->where('status', $status);
+        }
+
+        return $query->paginate($perPage);
     }
 }

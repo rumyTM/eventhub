@@ -11,6 +11,7 @@ use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\PayoutRepositoryInterface;
 use App\Repositories\Contracts\SettingRepositoryInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -61,14 +62,109 @@ final class PayoutBuildService
             return $existing;
         }
 
-        // Determine eligible orders + compute balance OUTSIDE the transaction (read-only, no lock needed).
+        $threshold = (int) ($this->settings->get(self::THRESHOLD_KEY) ?? self::DEFAULT_THRESHOLD);
+
+        // Per-vendor advisory lock: ensures only one build runs per vendor at a time.
+        // Without this, two workers with DIFFERENT batchIds can both read the same eligibleOrderIds
+        // before either commits, then each create a separate payout that claims the same orders —
+        // both reach Paid and the vendor is paid twice for the same revenue (TOCTOU).
+        $lock = Cache::lock("payout:vendor:{$vendorId}", 30);
+        if (! $lock->get()) {
+            // Another build is in progress for this vendor — return whatever that winner created.
+            return $this->payouts->findByIdempotencyKey($idempotencyKey);
+        }
+
+        try {
+            // Build the payout row + items inside a transaction with a row lock.
+            try {
+                return DB::transaction(function () use ($vendorId, $batchId, $idempotencyKey, $threshold): ?Payout {
+                    // Row-lock guard: blocks a concurrent worker that reached this point at the same time.
+                    $locked = $this->payouts->lockByIdempotencyKey($idempotencyKey);
+                    if ($locked !== null && $locked->status !== PayoutStatus::Failed) {
+                        return $locked;
+                    }
+
+                    // Read eligible orders and amounts INSIDE the transaction (after both locks) so the
+                    // snapshot cannot be stale from a pre-lock window.
+                    $eligibleOrderIds = $this->orders->eligibleOrderIdsForVendorPayout($vendorId);
+                    if ($eligibleOrderIds === []) {
+                        return null;
+                    }
+
+                    $amounts = $this->ledger->vendorPayoutAmounts($vendorId, $eligibleOrderIds);
+                    $reservedRefund = $this->ledger->pendingRefundAmountForOrders($eligibleOrderIds);
+
+                    $calc = $this->calculatePayout->handle(
+                        gross: $amounts['gross'],
+                        commission: $amounts['commission'],
+                        adjustments: $amounts['adjustments'],
+                        threshold: $threshold,
+                    );
+
+                    if (! $calc->meetsThreshold) {
+                        LogHelper::logEntry(LogHelper::LOG_INFO, 'Vendor payout below threshold; rolling into next cycle', [
+                            'vendor_id' => $vendorId, 'batch_id' => $batchId,
+                            'payable' => $calc->payable, 'threshold' => $threshold,
+                        ]);
+
+                        return null;
+                    }
+
+                    $payout = $this->payouts->createPayout([
+                        'vendor_id' => $vendorId,
+                        'gross' => $calc->gross,
+                        'commission' => $calc->commission,
+                        'net' => $calc->net,           // accounting net = gross − commission
+                        'payable' => $calc->payable,   // disbursable = net + adjustments, floored at 0
+                        'reserved_refund' => $reservedRefund,
+                        'currency' => 'BDT',           // ADR-12: single-currency platform
+                        'status' => PayoutStatus::Pending->value,
+                        'batch_id' => $batchId,
+                        'idempotency_key' => $idempotencyKey,
+                    ]);
+
+                    foreach ($eligibleOrderIds as $orderId) {
+                        $this->payouts->createPayoutItem([
+                            'payout_id' => $payout->id,
+                            'order_id' => $orderId,
+                            'settled_amount' => $amounts['per_order'][$orderId] ?? 0,
+                        ]);
+                    }
+
+                    LogHelper::logEntry(LogHelper::LOG_INFO, 'Payout built for vendor', [
+                        'vendor_id' => $vendorId, 'batch_id' => $batchId,
+                        'payout_id' => $payout->id, 'net' => $calc->payable,
+                        'order_count' => count($eligibleOrderIds),
+                    ]);
+
+                    return $payout;
+                });
+            } catch (UniqueConstraintViolationException) {
+                // Concurrent INSERT hit the unique key — return the winning row.
+                return $this->payouts->findByIdempotencyKey($idempotencyKey);
+            }
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Calculate what a vendor's next payout would look like without creating anything.
+     * Returns null when there are no eligible orders or the balance is below threshold.
+     *
+     * @return array{gross:int,commission:int,net:int,payable:int,reserved_refund:int,currency:string,meets_threshold:bool,threshold:int}|null
+     */
+    public function previewForVendor(string $vendorId): ?array
+    {
+        $threshold = (int) ($this->settings->get(self::THRESHOLD_KEY) ?? self::DEFAULT_THRESHOLD);
+
         $eligibleOrderIds = $this->orders->eligibleOrderIdsForVendorPayout($vendorId);
         if ($eligibleOrderIds === []) {
             return null;
         }
 
-        $amounts = $this->ledger->vendorPayoutAmounts($vendorId, $eligibleOrderIds);
-        $threshold = (int) ($this->settings->get(self::THRESHOLD_KEY) ?? self::DEFAULT_THRESHOLD);
+        $amounts       = $this->ledger->vendorPayoutAmounts($vendorId, $eligibleOrderIds);
+        $reservedRefund = $this->ledger->pendingRefundAmountForOrders($eligibleOrderIds);
 
         $calc = $this->calculatePayout->handle(
             gross: $amounts['gross'],
@@ -77,57 +173,16 @@ final class PayoutBuildService
             threshold: $threshold,
         );
 
-        if (! $calc->meetsThreshold) {
-            LogHelper::logEntry(LogHelper::LOG_INFO, 'Vendor payout below threshold; rolling into next cycle', [
-                'vendor_id' => $vendorId, 'batch_id' => $batchId,
-                'payable' => $calc->payable, 'threshold' => $threshold,
-            ]);
-
-            return null;
-        }
-
-        // Build the payout row + items inside a transaction with a row lock.
-        try {
-            return DB::transaction(function () use ($vendorId, $batchId, $idempotencyKey, $calc, $amounts, $eligibleOrderIds): Payout {
-                // Row-lock guard: blocks a concurrent worker that reached this point at the same time.
-                $locked = $this->payouts->lockByIdempotencyKey($idempotencyKey);
-                if ($locked !== null && $locked->status !== PayoutStatus::Failed) {
-                    return $locked;
-                }
-
-                $payout = $this->payouts->createPayout([
-                    'vendor_id' => $vendorId,
-                    'gross' => $calc->gross,
-                    'commission' => $calc->commission,
-                    'net' => $calc->net,           // H-2: accounting net = gross − commission
-                    'payable' => $calc->payable,   // H-2: disbursable = net + adjustments, floored at 0
-                    'reserved_refund' => 0,        // simplified; reserve estimation is a follow-up
-                    'currency' => 'BDT',           // ADR-12: single-currency platform
-                    'status' => PayoutStatus::Pending->value,
-                    'batch_id' => $batchId,
-                    'idempotency_key' => $idempotencyKey,
-                ]);
-
-                foreach ($eligibleOrderIds as $orderId) {
-                    $this->payouts->createPayoutItem([
-                        'payout_id' => $payout->id,
-                        'order_id' => $orderId,
-                        'settled_amount' => $amounts['per_order'][$orderId] ?? 0,
-                    ]);
-                }
-
-                LogHelper::logEntry(LogHelper::LOG_INFO, 'Payout built for vendor', [
-                    'vendor_id' => $vendorId, 'batch_id' => $batchId,
-                    'payout_id' => $payout->id, 'net' => $calc->payable,
-                    'order_count' => count($eligibleOrderIds),
-                ]);
-
-                return $payout;
-            });
-        } catch (UniqueConstraintViolationException) {
-            // Concurrent INSERT hit the unique key — return the winning row.
-            return $this->payouts->findByIdempotencyKey($idempotencyKey);
-        }
+        return [
+            'gross'           => $calc->gross,
+            'commission'      => $calc->commission,
+            'net'             => $calc->net,
+            'payable'         => $calc->payable,
+            'reserved_refund' => $reservedRefund,
+            'currency'        => 'BDT',
+            'meets_threshold' => $calc->meetsThreshold,
+            'threshold'       => $threshold,
+        ];
     }
 
     /**
@@ -144,6 +199,11 @@ final class PayoutBuildService
 
         $payouts = [];
         foreach ($vendorIds as $vendorId) {
+            $idempotencyKey = "payout:{$vendorId}:{$batchId}";
+            $existing = $this->payouts->findByIdempotencyKey($idempotencyKey);
+            if ($existing !== null && $existing->status !== PayoutStatus::Failed) {
+                continue; // already built for this batch in a prior call
+            }
             $payout = $this->buildForVendor($vendorId, $batchId);
             if ($payout !== null) {
                 $payouts[] = $payout;

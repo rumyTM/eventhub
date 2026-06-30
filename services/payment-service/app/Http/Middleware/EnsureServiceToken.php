@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Helpers\LogHelper;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -23,14 +24,28 @@ final class EnsureServiceToken
         $provided = $request->bearerToken();
 
         if (! is_string($provided) || $provided === '') {
+            LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:2a] EnsureServiceToken — NO bearer token in request (401)', [
+                'url' => $request->fullUrl(),
+            ]);
             abort(401, 'Unauthorized.'); // generic — never reveal the auth mechanism
         }
 
         $expected = config('services.payment.service_token');
 
-        if (! is_string($expected) || $expected === '' || ! hash_equals($expected, $provided)) {
+        $match = is_string($expected) && $expected !== '' && hash_equals($expected, $provided);
+
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:2a] EnsureServiceToken — token check', [
+            'expected_set' => is_string($expected) && $expected !== '',
+            'provided_len' => strlen($provided),
+            'expected_len' => is_string($expected) ? strlen($expected) : 0,
+            'match' => $match,
+        ]);
+
+        if (! $match) {
             abort(403, 'Forbidden.');
         }
+
+        LogHelper::logEntry(LogHelper::LOG_DEBUG, '[PAYMENT-CHAIN:2a] EnsureServiceToken — token verified OK');
 
         return $next($request);
     }

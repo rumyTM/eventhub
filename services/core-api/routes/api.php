@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\DisputeController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\PaymentWebhookController;
@@ -79,9 +80,17 @@ Route::middleware(['auth:sanctum', 'role:vendor', 'throttle:write'])->group(func
     Route::post('vendor/kyc', [VendorController::class, 'submitKyc'])->name('vendor.kyc.submit');
 });
 
-// --- Attendee checkout (order + 15-min holds, idempotent) ---
+// --- Vendor self-service: own payout history + preview + request ---
+Route::middleware(['auth:sanctum', 'role:vendor'])->group(function () {
+    Route::get('payouts', [PayoutController::class, 'myPayouts'])->middleware('throttle:read')->name('payouts.my');
+    Route::get('payouts/preview', [PayoutController::class, 'preview'])->middleware('throttle:read')->name('payouts.preview');
+    Route::post('payouts/request', [PayoutController::class, 'requestPayout'])->middleware('throttle:write')->name('payouts.request');
+});
+
+// --- Attendee checkout (order + 15-min holds, idempotent) + explicit pay trigger ---
 Route::middleware(['auth:sanctum', 'role:attendee', 'throttle:checkout'])->group(function () {
     Route::post('orders', [OrderController::class, 'store'])->name('orders.store');
+    Route::post('orders/{order}/pay', [OrderController::class, 'pay'])->name('orders.pay');
 });
 
 // --- Attendee refund request (own paid order; policy-derived amount, idempotent) ---
@@ -94,6 +103,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('auth')->name('auth.')->group(function () {
         Route::post('logout', [AuthController::class, 'logout'])->name('logout');
         Route::get('me', [AuthController::class, 'me'])->name('me');
+    });
+
+    Route::middleware('throttle:read')->group(function () {
+        Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
+        Route::get('orders/{order}', [OrderController::class, 'show'])->name('orders.show');
     });
 
     // --- Admin area (role-gated). ---
@@ -114,6 +128,14 @@ Route::middleware('auth:sanctum')->group(function () {
         // Admin-initiated refund (e.g. event-cancellation 100% refund). Policy-derived amount; idempotent.
         Route::post('orders/{order}/refund', [RefundController::class, 'initiate'])
             ->middleware('throttle:refund')->name('orders.refund');
+
+        // Dispute queue (out-of-policy refund contests — ADR-11).
+        Route::get('disputes', [DisputeController::class, 'index'])
+            ->middleware('throttle:read')->name('disputes.index');
+        Route::post('disputes/{dispute}/resolve', [DisputeController::class, 'resolve'])
+            ->middleware('throttle:write')->name('disputes.resolve');
+        Route::post('disputes/{dispute}/reject', [DisputeController::class, 'reject'])
+            ->middleware('throttle:write')->name('disputes.reject');
 
         // Payout management.
         Route::get('payouts', [PayoutController::class, 'index'])
