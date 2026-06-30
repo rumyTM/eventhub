@@ -32,9 +32,9 @@ class ListPayoutsRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'status'    => ['example' => 'pending'],
+            'status' => ['example' => 'pending'],
             'vendor_id' => ['example' => 'no-example'],
-            'per_page'  => ['example' => 20],
+            'per_page' => ['example' => 20],
         ];
     }
 }

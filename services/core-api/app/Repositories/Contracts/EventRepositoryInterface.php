@@ -4,6 +4,8 @@ namespace App\Repositories\Contracts;
 
 use App\Models\Event;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 
 interface EventRepositoryInterface
 {
@@ -24,4 +26,12 @@ interface EventRepositoryInterface
 
     /** Re-read an event under a row lock (FOR UPDATE) — call inside a transaction. */
     public function lockForUpdate(string $id): Event;
+
+    /**
+     * Published or ongoing events whose starts_at falls in [$from, $to].
+     * Used by SendEventReminders to find events needing a reminder dispatch.
+     *
+     * @return Collection<int, Event>
+     */
+    public function findStartingInWindow(Carbon $from, Carbon $to): Collection;
 }

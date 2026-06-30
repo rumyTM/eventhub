@@ -31,6 +31,7 @@ class SendOrderConfirmationJob implements ShouldQueue
             LogHelper::logEntry(LogHelper::LOG_WARNING, 'SendOrderConfirmationJob: order not found', [
                 'order_id' => $this->orderId,
             ]);
+
             return;
         }
 

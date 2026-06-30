@@ -41,8 +41,8 @@ class RequestRefundRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'items.*.order_item_id'  => ['example' => '01JWXYZ000000000000OITEM1'],
-            'items.*.quantity'       => ['example' => 1],
+            'items.*.order_item_id' => ['example' => '01JWXYZ000000000000OITEM1'],
+            'items.*.quantity' => ['example' => 1],
         ];
     }
 }

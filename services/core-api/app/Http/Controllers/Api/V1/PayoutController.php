@@ -44,8 +44,11 @@ final class PayoutController extends Controller
      * reuses the deterministic idempotency key.
      *
      * @group Admin
+     *
      * @subgroup Payouts
+     *
      * @authenticated
+     *
      * @response 200 scenario="Queued" {"success":true,"message":"Payout execution queued.","data":{"payout":{"id":"01J000000000000DEMOPAYOUT","vendor_id":"01J000000000000DEMOVENDOR","gross":500000,"commission":50000,"net":450000,"currency":"BDT","status":{"value":"pending","label":"Pending"},"batch_id":"01J0BATCHID","created_at":"2026-06-30T09:00:00Z"}},"errors":null}
      * @response 409 scenario="Not executable" {"success":false,"message":"This payout cannot be executed in its current status.","data":null,"errors":null}
      */
@@ -76,8 +79,11 @@ final class PayoutController extends Controller
      * Paginated list of all vendor payouts. Filter by `status` and/or `vendor_id`.
      *
      * @group Admin
+     *
      * @subgroup Payouts
+     *
      * @authenticated
+     *
      * @response 200 scenario="Success" {"success":true,"message":"Payouts retrieved.","data":{"payouts":[{"id":"01JWXYZ000000000000PAYOUT1","vendor_id":"01JWXYZ0000000000000VENDOR","batch_id":"2026-09-20","currency":"BDT","gross":500000,"commission":50000,"net":450000,"payable":450000,"reserved_refund":0,"status":{"value":"pending","label":"Pending"},"created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}],"meta":{"current_page":1,"last_page":1,"total":1,"per_page":20}},"errors":null}
      */
     public function index(ListPayoutsRequest $request): JsonResponse
@@ -113,8 +119,11 @@ final class PayoutController extends Controller
      * Call `/admin/payouts/{payout}/execute` to actually disburse. Idempotent per `batch_id`.
      *
      * @group Admin
+     *
      * @subgroup Payouts
+     *
      * @authenticated
+     *
      * @response 201 scenario="Batch built" {"success":true,"message":"1 payout(s) built.","data":{"batch_id":"2026-06-30","count":1,"payouts":[{"id":"01J000000000000DEMOPAYOUT","vendor_id":"01J000000000000DEMOVENDOR","gross":500000,"commission":50000,"net":450000,"currency":"BDT","status":{"value":"pending","label":"Pending"},"batch_id":"2026-06-30","created_at":"2026-06-30T09:00:00Z"}]},"errors":null}
      */
     public function build(BuildPayoutsRequest $request): JsonResponse

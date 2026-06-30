@@ -69,13 +69,13 @@ class UpdateEventRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'title'       => ['example' => 'Summer Music Festival 2026 (Updated)'],
+            'title' => ['example' => 'Summer Music Festival 2026 (Updated)'],
             'description' => ['example' => 'Doors open at 17:30. Standing and seated areas available.'],
-            'timezone'    => ['example' => 'Asia/Dhaka'],
-            'starts_at'   => ['example' => '2026-09-20T18:00:00+06:00'],
-            'ends_at'     => ['example' => '2026-09-20T23:00:00+06:00'],
-            'capacity'    => ['example' => 600],
-            'status'      => ['example' => 'published'],
+            'timezone' => ['example' => 'Asia/Dhaka'],
+            'starts_at' => ['example' => '2026-09-20T18:00:00+06:00'],
+            'ends_at' => ['example' => '2026-09-20T23:00:00+06:00'],
+            'capacity' => ['example' => 600],
+            'status' => ['example' => 'published'],
         ];
     }
 }

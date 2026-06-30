@@ -32,10 +32,10 @@ class BeautifyScribeCollectionCommand extends Command
      * The dotted path supports numeric indices: "data.payouts.0.id".
      */
     private const CAPTURE_MAP = [
-        'Create event'                 => ['eventId',      'data.event.id'],
-        'Create ticket type'           => ['ticketTypeId', 'data.ticket_type.id'],
-        'Checkout'                     => ['orderId',      'data.order.id'],
-        'Build payout batch (admin)'   => ['payoutId',     'data.payouts.0.id'],
+        'Create event' => ['eventId',      'data.event.id'],
+        'Create ticket type' => ['ticketTypeId', 'data.ticket_type.id'],
+        'Checkout' => ['orderId',      'data.order.id'],
+        'Build payout batch (admin)' => ['payoutId',     'data.payouts.0.id'],
         'List pending vendors (admin)' => ['vendorId',     'data.vendors.0.id'],
     ];
 
@@ -44,12 +44,12 @@ class BeautifyScribeCollectionCommand extends Command
      * Applied to every request that carries a matching :key segment.
      */
     private const PATH_VAR_MAP = [
-        'id'            => '{{eventId}}',       // /events/:id (update / delete / show)
-        'event_id'      => '{{eventId}}',
+        'id' => '{{eventId}}',       // /events/:id (update / delete / show)
+        'event_id' => '{{eventId}}',
         'ticketType_id' => '{{ticketTypeId}}',
-        'order_id'      => '{{orderId}}',
-        'vendor_id'     => '{{vendorId}}',
-        'payout_id'     => '{{payoutId}}',
+        'order_id' => '{{orderId}}',
+        'vendor_id' => '{{vendorId}}',
+        'payout_id' => '{{payoutId}}',
     ];
 
     /** Full collection-variable list (replaces whatever Scribe generated). */
@@ -96,7 +96,7 @@ class BeautifyScribeCollectionCommand extends Command
 
         // 3. Collection-level Bearer auth → {{token}}.
         $collection['auth'] = [
-            'type'   => 'bearer',
+            'type' => 'bearer',
             'bearer' => [
                 ['key' => 'token', 'value' => '{{token}}', 'type' => 'string'],
             ],
@@ -105,7 +105,7 @@ class BeautifyScribeCollectionCommand extends Command
 
         // 4 & 5. Test scripts + path variable defaults.
         $scriptCount = 0;
-        $pathCount   = 0;
+        $pathCount = 0;
         $this->processItems($collection['item'], $scriptCount, $pathCount);
         $this->line("  ✓ Injected test scripts into {$scriptCount} request(s).");
         $this->line("  ✓ Patched {$pathCount} URL path variable(s).");
@@ -127,6 +127,7 @@ class BeautifyScribeCollectionCommand extends Command
         foreach ($node as $key => &$value) {
             if (is_array($value)) {
                 $this->beautifyBodies($value, $count);
+
                 continue;
             }
 
@@ -163,6 +164,7 @@ class BeautifyScribeCollectionCommand extends Command
             if (isset($item['item'])) {
                 // Folder (group or subgroup) → recurse.
                 $this->processItems($item['item'], $scriptCount, $pathCount);
+
                 continue;
             }
 
@@ -225,7 +227,7 @@ class BeautifyScribeCollectionCommand extends Command
         if (isset(self::CAPTURE_MAP[$name])) {
             [$variable, $dottedPath] = self::CAPTURE_MAP[$name];
 
-            $jsAccessor  = $this->dottedPathToJs('res', $dottedPath);
+            $jsAccessor = $this->dottedPathToJs('res', $dottedPath);
             $jsCondition = $this->dottedPathToGuard('res', $dottedPath);
 
             return [
@@ -262,10 +264,10 @@ class BeautifyScribeCollectionCommand extends Command
     private function dottedPathToGuard(string $root, string $dottedPath): string
     {
         $conditions = [$root];
-        $current    = $root;
+        $current = $root;
 
         foreach (explode('.', $dottedPath) as $part) {
-            $current   .= is_numeric($part) ? "[{$part}]" : ".{$part}";
+            $current .= is_numeric($part) ? "[{$part}]" : ".{$part}";
             $conditions[] = $current;
         }
 

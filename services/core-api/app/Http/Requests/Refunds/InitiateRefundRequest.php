@@ -47,9 +47,9 @@ class InitiateRefundRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'reason'                 => ['example' => 'event_cancelled'],
-            'items.*.order_item_id'  => ['example' => '01JWXYZ000000000000OITEM1'],
-            'items.*.quantity'       => ['example' => 1],
+            'reason' => ['example' => 'event_cancelled'],
+            'items.*.order_item_id' => ['example' => '01JWXYZ000000000000OITEM1'],
+            'items.*.quantity' => ['example' => 1],
         ];
     }
 }

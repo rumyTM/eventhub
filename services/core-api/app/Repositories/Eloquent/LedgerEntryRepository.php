@@ -17,6 +17,54 @@ final class LedgerEntryRepository implements LedgerEntryRepositoryInterface
         return LedgerEntry::create($attributes);
     }
 
+    public function dailySalesByVendor(string $reportDate): array
+    {
+        // Financial totals per vendor from ledger entries.
+        $financial = LedgerEntry::query()
+            ->select('vendor_id')
+            ->selectRaw(
+                'SUM(CASE WHEN entry_type = ? THEN amount ELSE 0 END) as gross',
+                [LedgerEntryType::Sale->value],
+            )
+            ->selectRaw(
+                'ABS(SUM(CASE WHEN entry_type = ? THEN amount ELSE 0 END)) as commission',
+                [LedgerEntryType::Commission->value],
+            )
+            ->where('subject_type', 'order')
+            ->whereDate('created_at', $reportDate)
+            ->groupBy('vendor_id')
+            ->get()
+            ->keyBy('vendor_id');
+
+        if ($financial->isEmpty()) {
+            return [];
+        }
+
+        // Ticket quantities from order_items for those same orders.
+        $ticketCounts = LedgerEntry::query()
+            ->select('ledger_entries.vendor_id')
+            ->selectRaw('SUM(oi.quantity) as tickets_sold')
+            ->join('order_items as oi', 'oi.order_id', '=', 'ledger_entries.subject_id')
+            ->where('ledger_entries.entry_type', LedgerEntryType::Sale->value)
+            ->where('ledger_entries.subject_type', 'order')
+            ->whereDate('ledger_entries.created_at', $reportDate)
+            ->groupBy('ledger_entries.vendor_id')
+            ->get()
+            ->keyBy('vendor_id');
+
+        $result = [];
+        foreach ($financial as $vendorId => $row) {
+            $result[] = [
+                'vendor_id' => $vendorId,
+                'gross' => (int) $row->gross,
+                'commission' => (int) $row->commission,
+                'tickets_sold' => (int) ($ticketCounts[$vendorId]?->tickets_sold ?? 0),
+            ];
+        }
+
+        return $result;
+    }
+
     public function vendorPayoutAmounts(string $vendorId, array $eligibleOrderIds): array
     {
         if ($eligibleOrderIds === []) {

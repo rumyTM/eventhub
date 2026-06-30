@@ -37,8 +37,11 @@ final class TicketTypeController extends Controller
      * Requires the same visibility as the parent event (published events are public).
      *
      * @group Public
+     *
      * @subgroup Ticket Types
+     *
      * @unauthenticated
+     *
      * @response 200 scenario="Success" {"success":true,"message":"Ticket types retrieved.","data":{"ticket_types":[{"id":"01JWXYZ000000000000TICKET1","event_id":"01JWXYZ0000000000000EVENT1","kind":{"value":"general","label":"General"},"price":50000,"currency":"BDT","quantity_total":200,"quantity_sold":12,"group_size":null,"group_discount":null,"sales_start":"2026-08-01T00:00:00+06:00","sales_end":"2026-09-19T23:59:59+06:00","created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}],"pagination":{"current_page":1,"per_page":25,"total":1,"last_page":1}},"errors":null}
      */
     public function index(Request $request, Event $event): JsonResponse
@@ -65,8 +68,11 @@ final class TicketTypeController extends Controller
      * Retrieve a single ticket type including group-bundle rules if applicable.
      *
      * @group Public
+     *
      * @subgroup Ticket Types
+     *
      * @unauthenticated
+     *
      * @response 200 scenario="Success" {"success":true,"message":"Ticket type retrieved.","data":{"ticket_type":{"id":"01JWXYZ000000000000TICKET1","event_id":"01JWXYZ0000000000000EVENT1","kind":{"value":"general","label":"General"},"price":50000,"currency":"BDT","quantity_total":200,"quantity_sold":12,"group_size":null,"group_discount":null,"sales_start":"2026-08-01T00:00:00+06:00","sales_end":"2026-09-19T23:59:59+06:00","created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}},"errors":null}
      */
     public function show(Request $request, Event $event, TicketType $ticketType): JsonResponse
@@ -87,7 +93,9 @@ final class TicketTypeController extends Controller
      * Add a ticket type (general, VIP, early-bird, or group-bundle) to the vendor's own event.
      *
      * @group Vendor
+     *
      * @subgroup Ticket Types
+     *
      * @authenticated
      */
     public function store(StoreTicketTypeRequest $request, Event $event): JsonResponse
@@ -109,7 +117,9 @@ final class TicketTypeController extends Controller
      * Update ticket type
      *
      * @group Vendor
+     *
      * @subgroup Ticket Types
+     *
      * @authenticated
      */
     public function update(UpdateTicketTypeRequest $request, Event $event, TicketType $ticketType): JsonResponse
@@ -132,7 +142,9 @@ final class TicketTypeController extends Controller
      * Soft-delete a ticket type. Only allowed if no paid orders reference it.
      *
      * @group Vendor
+     *
      * @subgroup Ticket Types
+     *
      * @authenticated
      */
     public function destroy(Request $request, Event $event, TicketType $ticketType): JsonResponse

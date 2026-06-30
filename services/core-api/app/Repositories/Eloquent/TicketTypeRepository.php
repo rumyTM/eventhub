@@ -38,6 +38,11 @@ final class TicketTypeRepository implements TicketTypeRepositoryInterface
             ->sum('quantity_total');
     }
 
+    public function find(string $id): ?TicketType
+    {
+        return TicketType::query()->find($id);
+    }
+
     public function create(array $attributes): TicketType
     {
         return TicketType::create($attributes);

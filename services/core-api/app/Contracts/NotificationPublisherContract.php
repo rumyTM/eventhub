@@ -26,11 +26,11 @@ interface NotificationPublisherContract
     /**
      * Publish a simulated-email notification job.
      *
-     * @param  string               $type          One of: order.confirmation, event.reminder,
-     *                                             payout.completed, vendor.kyc_decision
-     * @param  array<string,mixed>  $recipient     { email?, name?, vendorId? }
-     * @param  array<string,mixed>  $data          Job-type-specific payload fields
-     * @param  string               $idempotencyKey Unique key — same key → only one delivery
+     * @param  string  $type  One of: order.confirmation, event.reminder,
+     *                        payout.completed, vendor.kyc_decision
+     * @param  array<string,mixed>  $recipient  { email?, name?, vendorId? }
+     * @param  array<string,mixed>  $data  Job-type-specific payload fields
+     * @param  string  $idempotencyKey  Unique key — same key → only one delivery
      */
     public function publishEmail(
         string $type,
@@ -42,11 +42,11 @@ interface NotificationPublisherContract
     /**
      * Publish a vendor-webhook notification job.
      *
-     * @param  string               $type          One of: order.created, event.sold_out, payout.sent
-     * @param  string               $url           Vendor-registered webhook endpoint
-     * @param  array<string,mixed>  $recipient     { email?, name?, vendorId? }
-     * @param  array<string,mixed>  $data          Webhook body data fields
-     * @param  string               $idempotencyKey Unique key — same key → only one delivery
+     * @param  string  $type  One of: order.created, event.sold_out, payout.sent
+     * @param  string  $url  Vendor-registered webhook endpoint
+     * @param  array<string,mixed>  $recipient  { email?, name?, vendorId? }
+     * @param  array<string,mixed>  $data  Webhook body data fields
+     * @param  string  $idempotencyKey  Unique key — same key → only one delivery
      */
     public function publishWebhook(
         string $type,

@@ -27,6 +27,9 @@ interface TicketTypeRepositoryInterface
      */
     public function sumQuantityTotalForEvent(string $eventId, ?string $exceptId = null): int;
 
+    /** Find a ticket type by ID, or null if not found (non-trashed only). */
+    public function find(string $id): ?TicketType;
+
     public function create(array $attributes): TicketType;
 
     public function update(TicketType $ticketType, array $attributes): TicketType;

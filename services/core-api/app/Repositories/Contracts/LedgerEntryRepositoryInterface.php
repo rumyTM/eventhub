@@ -14,6 +14,19 @@ interface LedgerEntryRepositoryInterface
     public function create(array $attributes): LedgerEntry;
 
     /**
+     * Aggregate daily sales from ledger_entries for a given date, grouped by vendor_id.
+     * Used by GenerateSalesReportService to populate the sales_reports table.
+     *
+     * Returns one entry per vendor that had Sale entries on the date:
+     *   - gross      : SUM of Sale entry amounts for that date
+     *   - commission : ABS(SUM) of Commission entry amounts for that date
+     *   - tickets_sold: SUM of order_items.quantity for those orders
+     *
+     * @return list<array{vendor_id: string, gross: int, commission: int, tickets_sold: int}>
+     */
+    public function dailySalesByVendor(string $reportDate): array;
+
+    /**
      * Return the payout amount breakdown for a vendor's eligible orders (ADR-13/20).
      *
      * - `gross`      : SUM of `sale` entries for the given eligible order IDs

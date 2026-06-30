@@ -6,6 +6,8 @@ use App\Enums\EventStatus;
 use App\Models\Event;
 use App\Repositories\Contracts\EventRepositoryInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 
 final class EventRepository implements EventRepositoryInterface
 {
@@ -52,5 +54,14 @@ final class EventRepository implements EventRepositoryInterface
     public function lockForUpdate(string $id): Event
     {
         return Event::query()->whereKey($id)->lockForUpdate()->firstOrFail();
+    }
+
+    public function findStartingInWindow(Carbon $from, Carbon $to): Collection
+    {
+        return Event::query()
+            ->whereIn('status', [EventStatus::Published->value, EventStatus::Ongoing->value])
+            ->whereBetween('starts_at', [$from, $to])
+            ->orderBy('starts_at')
+            ->get();
     }
 }

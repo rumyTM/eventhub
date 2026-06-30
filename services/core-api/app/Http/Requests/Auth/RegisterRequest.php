@@ -60,13 +60,13 @@ class RegisterRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'name'                  => ['example' => 'Alice Smith'],
-            'email'                 => ['example' => 'alice@example.com'],
-            'password'              => ['example' => 'password123'],
+            'name' => ['example' => 'Alice Smith'],
+            'email' => ['example' => 'alice@example.com'],
+            'password' => ['example' => 'password123'],
             'password_confirmation' => ['example' => 'password123'],
-            'role'                  => ['example' => 'vendor'],
-            'business_name'         => ['example' => 'Acme Events Ltd'],
-            'phone'                 => ['example' => '+8801711000000'],
+            'role' => ['example' => 'vendor'],
+            'business_name' => ['example' => 'Acme Events Ltd'],
+            'phone' => ['example' => '+8801711000000'],
         ];
     }
 }

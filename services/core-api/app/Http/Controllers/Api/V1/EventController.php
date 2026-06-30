@@ -37,8 +37,11 @@ final class EventController extends Controller
      * draft/ongoing events; admins see all events regardless of status.
      *
      * @group Public
+     *
      * @subgroup Events
+     *
      * @unauthenticated
+     *
      * @response 200 scenario="Success" {"success":true,"message":"Events retrieved.","data":{"events":[{"id":"01JWXYZ0000000000000EVENT1","vendor_id":"01JWXYZ0000000000000VENDOR","title":"Summer Music Festival 2026","description":"An evening of live music at the Dhaka Convention Centre.","timezone":"Asia/Dhaka","starts_at":"2026-09-20T12:00:00+00:00","ends_at":"2026-09-20T16:00:00+00:00","capacity":500,"status":{"value":"published","label":"Published"},"ticket_types":[],"created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}],"pagination":{"current_page":1,"per_page":15,"total":1,"last_page":1}},"errors":null}
      */
     public function index(Request $request): JsonResponse
@@ -63,8 +66,11 @@ final class EventController extends Controller
      * draft/cancelled events are visible only to their owner vendor or an admin.
      *
      * @group Public
+     *
      * @subgroup Events
+     *
      * @unauthenticated
+     *
      * @response 200 scenario="Success" {"success":true,"message":"Event retrieved.","data":{"event":{"id":"01JWXYZ0000000000000EVENT1","vendor_id":"01JWXYZ0000000000000VENDOR","title":"Summer Music Festival 2026","description":"An evening of live music at the Dhaka Convention Centre.","timezone":"Asia/Dhaka","starts_at":"2026-09-20T12:00:00+00:00","ends_at":"2026-09-20T16:00:00+00:00","capacity":500,"status":{"value":"published","label":"Published"},"ticket_types":[{"id":"01JWXYZ000000000000TICKET1","event_id":"01JWXYZ0000000000000EVENT1","kind":{"value":"general","label":"General"},"price":50000,"currency":"BDT","quantity_total":200,"quantity_sold":12,"group_size":null,"group_discount":null,"sales_start":"2026-08-01T00:00:00+06:00","sales_end":"2026-09-19T23:59:59+06:00","created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}],"created_at":"2026-06-30T09:00:00+00:00","updated_at":"2026-06-30T09:00:00+00:00"}},"errors":null}
      * @response 403 scenario="Draft event (not owner)" {"success":false,"message":"This action is unauthorized.","data":null,"errors":null}
      */
@@ -89,7 +95,9 @@ final class EventController extends Controller
      * The vendor must be KYC-verified before the event can be published.
      *
      * @group Vendor
+     *
      * @subgroup Events
+     *
      * @authenticated
      */
     public function store(StoreEventRequest $request): JsonResponse
@@ -114,7 +122,9 @@ final class EventController extends Controller
      * the event lifecycle policy (e.g. vendor must be KYC-verified to publish).
      *
      * @group Vendor
+     *
      * @subgroup Events
+     *
      * @authenticated
      */
     public function update(UpdateEventRequest $request, Event $event): JsonResponse
@@ -138,7 +148,9 @@ final class EventController extends Controller
      * (cancel them instead via the status transition).
      *
      * @group Vendor
+     *
      * @subgroup Events
+     *
      * @authenticated
      */
     public function destroy(Request $request, Event $event): JsonResponse

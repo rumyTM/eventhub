@@ -36,8 +36,11 @@ final class RefundController extends Controller
      * dispute for admin mediation.
      *
      * @group Attendee
+     *
      * @subgroup Refunds
+     *
      * @authenticated
+     *
      * @response 202 scenario="Refund accepted" {"success":true,"message":"Refund requested and queued for processing.","data":{"refund":{"id":"01J000000000000DEMOREFUND","order_id":"01J000000000000DEMOORDER1","amount":75000,"currency":"BDT","policy_applied":"100","status":{"value":"pending","label":"Pending"},"reason":{"value":"attendee_requested","label":"Attendee Requested"},"created_at":"2026-06-30T10:10:00Z"}},"errors":null}
      * @response 422 scenario="Order not refundable" {"success":false,"message":"Validation failed.","data":null,"errors":{"order":["This order is not eligible for a refund."]}}
      */
@@ -64,8 +67,11 @@ final class RefundController extends Controller
      * Idempotent: replaying the same order returns the existing open refund.
      *
      * @group Admin
+     *
      * @subgroup Refunds
+     *
      * @authenticated
+     *
      * @response 202 scenario="Refund initiated" {"success":true,"message":"Refund requested and queued for processing.","data":{"refund":{"id":"01J000000000000DEMOREFUND","order_id":"01J000000000000DEMOORDER1","amount":75000,"currency":"BDT","policy_applied":"100","status":{"value":"pending","label":"Pending"},"reason":{"value":"event_cancelled","label":"Event Cancelled"},"created_at":"2026-06-30T10:10:00Z"}},"errors":null}
      */
     public function initiate(InitiateRefundRequest $request, Order $order): JsonResponse

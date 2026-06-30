@@ -32,6 +32,7 @@ class SendPayoutNotificationJob implements ShouldQueue
             LogHelper::logEntry(LogHelper::LOG_WARNING, 'SendPayoutNotificationJob: payout not found', [
                 'payout_id' => $this->payoutId,
             ]);
+
             return;
         }
 

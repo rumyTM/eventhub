@@ -40,7 +40,7 @@ class BuildPayoutsRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'batch_id'  => ['example' => '2026-09-20'],
+            'batch_id' => ['example' => '2026-09-20'],
             'vendor_id' => ['example' => 'no-example'],
         ];
     }

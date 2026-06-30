@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Redis;
 class RedisNotificationPublisher implements NotificationPublisherContract
 {
     private const NOTIFICATIONS_QUEUE = 'eventhub:notifications';
+
     private const WEBHOOKS_QUEUE = 'eventhub:webhooks';
 
     public function publishEmail(

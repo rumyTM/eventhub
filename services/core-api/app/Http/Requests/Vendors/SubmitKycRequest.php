@@ -33,8 +33,8 @@ class SubmitKycRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'documents.*.type'          => ['example' => 'trade_license'],
-            'documents.*.storage_path'  => ['example' => 'kyc/vendors/01JWXYZ0000VENDOR/trade_license.pdf'],
+            'documents.*.type' => ['example' => 'trade_license'],
+            'documents.*.storage_path' => ['example' => 'kyc/vendors/01JWXYZ0000VENDOR/trade_license.pdf'],
         ];
     }
 }

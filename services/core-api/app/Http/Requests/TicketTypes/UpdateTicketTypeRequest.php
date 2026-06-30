@@ -73,14 +73,14 @@ class UpdateTicketTypeRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'kind'           => ['example' => 'vip'],
-            'price'          => ['example' => 150000],
-            'currency'       => ['example' => 'BDT'],
+            'kind' => ['example' => 'vip'],
+            'price' => ['example' => 150000],
+            'currency' => ['example' => 'BDT'],
             'quantity_total' => ['example' => 50],
-            'group_size'     => ['example' => null],
+            'group_size' => ['example' => null],
             'group_discount' => ['example' => null],
-            'sales_start'    => ['example' => '2026-08-01T00:00:00+06:00'],
-            'sales_end'      => ['example' => '2026-09-19T23:59:59+06:00'],
+            'sales_start' => ['example' => '2026-08-01T00:00:00+06:00'],
+            'sales_end' => ['example' => '2026-09-19T23:59:59+06:00'],
         ];
     }
 }

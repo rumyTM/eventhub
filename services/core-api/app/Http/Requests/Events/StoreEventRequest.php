@@ -47,12 +47,12 @@ class StoreEventRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'title'       => ['example' => 'Summer Music Festival 2026'],
+            'title' => ['example' => 'Summer Music Festival 2026'],
             'description' => ['example' => 'An evening of live music at the Dhaka Convention Centre.'],
-            'timezone'    => ['example' => 'Asia/Dhaka'],
-            'starts_at'   => ['example' => '2026-09-20T18:00:00+06:00'],
-            'ends_at'     => ['example' => '2026-09-20T22:00:00+06:00'],
-            'capacity'    => ['example' => 500],
+            'timezone' => ['example' => 'Asia/Dhaka'],
+            'starts_at' => ['example' => '2026-09-20T18:00:00+06:00'],
+            'ends_at' => ['example' => '2026-09-20T22:00:00+06:00'],
+            'capacity' => ['example' => 500],
         ];
     }
 }

@@ -36,7 +36,9 @@ final class VendorController extends Controller
      * Only `pending` and `rejected` vendors may re-submit.
      *
      * @group Vendor
+     *
      * @subgroup KYC
+     *
      * @authenticated
      */
     public function submitKyc(SubmitKycRequest $request): JsonResponse
@@ -61,8 +63,11 @@ final class VendorController extends Controller
      * Paginated list of vendors with `kyc_status=pending`, awaiting an admin decision.
      *
      * @group Admin
+     *
      * @subgroup Vendors
+     *
      * @authenticated
+     *
      * @response 200 scenario="Success" {"success":true,"message":"Vendors pending KYC review retrieved.","data":{"vendors":[{"id":"01JWXYZ0000000000000VENDOR","business_name":"Acme Events Ltd","legal_name":null,"trade_license_no":null,"contact_phone":"+8801711000000","address":null,"kyc_status":{"value":"pending","label":"Pending"},"submitted_at":"2026-06-30T09:00:00+00:00","reviewed_at":null,"rejection_reason":null,"kyc_documents":[],"created_at":"2026-06-30T09:00:00+00:00"}],"pagination":{"current_page":1,"per_page":25,"total":1,"last_page":1}},"errors":null}
      */
     public function pending(Request $request): JsonResponse
@@ -89,7 +94,9 @@ final class VendorController extends Controller
      * events and receive payouts.
      *
      * @group Admin
+     *
      * @subgroup Vendors
+     *
      * @authenticated
      */
     public function verify(Request $request, Vendor $vendor): JsonResponse
@@ -113,7 +120,9 @@ final class VendorController extends Controller
      * The vendor may re-submit after addressing the stated issues.
      *
      * @group Admin
+     *
      * @subgroup Vendors
+     *
      * @authenticated
      */
     public function reject(RejectVendorRequest $request, Vendor $vendor): JsonResponse

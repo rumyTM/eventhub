@@ -35,7 +35,7 @@ class LoginRequest extends FormRequest
     public function bodyParameters(): array
     {
         return [
-            'email'    => ['example' => 'vendor@eventhub.test'],
+            'email' => ['example' => 'vendor@eventhub.test'],
             'password' => ['example' => 'password'],
         ];
     }
