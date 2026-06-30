@@ -14,6 +14,7 @@ use App\Repositories\Contracts\DisputeRepositoryInterface;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\PaymentRepositoryInterface;
 use App\Repositories\Contracts\RefundRepositoryInterface;
+use App\Repositories\Contracts\TicketRepositoryInterface;
 use App\Support\Refunds\RefundPolicy;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +39,7 @@ final class RefundService
         private readonly PaymentRepositoryInterface $payments,
         private readonly RefundRepositoryInterface $refunds,
         private readonly DisputeRepositoryInterface $disputes,
+        private readonly TicketRepositoryInterface $tickets,
         private readonly RefundPolicy $policy,
     ) {}
 
@@ -149,6 +151,14 @@ final class RefundService
 
                 $lines[] = [$item, $quantity];
             }
+        }
+
+        // A checked-in ticket represents a consumed seat — refunding it would incorrectly return that
+        // inventory (ADR-37). No per-ticket selection exists yet (see the class docblock's H-2 note), so
+        // the guard is coarse: any checked-in ticket on a selected line blocks that line's refund.
+        $orderItemIds = array_map(static fn (array $line): string => $line[0]->id, $lines);
+        if ($this->tickets->hasCheckedInForOrderItems($orderItemIds)) {
+            throw new RefundNotAllowedException(__('api.refunds.checked_in'));
         }
 
         $base = 0;

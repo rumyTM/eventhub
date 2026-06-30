@@ -91,6 +91,7 @@ return [
         'already_refunded' => 'This order has already been fully refunded.',
         'invalid_item' => 'A selected ticket does not belong to this order.',
         'invalid_quantity' => 'The selected quantity exceeds the tickets on this order.',
+        'checked_in' => 'This ticket has already been checked in and cannot be refunded.',
     ],
 
     'disputes' => [

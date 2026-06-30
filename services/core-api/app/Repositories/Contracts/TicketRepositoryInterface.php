@@ -19,4 +19,12 @@ interface TicketRepositoryInterface
      * finds no `valid` tickets and voids none).
      */
     public function voidValidForOrder(string $orderId): int;
+
+    /**
+     * True if any ticket on the given order items has already been checked in. A checked-in ticket
+     * represents a consumed seat — refunding it would incorrectly return that inventory (ADR-37).
+     *
+     * @param  list<string>  $orderItemIds
+     */
+    public function hasCheckedInForOrderItems(array $orderItemIds): bool;
 }

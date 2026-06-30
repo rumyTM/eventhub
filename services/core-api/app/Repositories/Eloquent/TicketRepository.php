@@ -22,4 +22,16 @@ final class TicketRepository implements TicketRepositoryInterface
             ->where('status', TicketStatus::Valid->value)
             ->update(['status' => TicketStatus::Refunded->value]);
     }
+
+    public function hasCheckedInForOrderItems(array $orderItemIds): bool
+    {
+        if ($orderItemIds === []) {
+            return false;
+        }
+
+        return Ticket::query()
+            ->whereIn('order_item_id', $orderItemIds)
+            ->where('status', TicketStatus::CheckedIn->value)
+            ->exists();
+    }
 }

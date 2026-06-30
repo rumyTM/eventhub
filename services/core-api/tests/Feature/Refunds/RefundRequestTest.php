@@ -5,6 +5,7 @@ namespace Tests\Feature\Refunds;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\RefundStatus;
+use App\Enums\TicketStatus;
 use App\Jobs\ExecuteRefundJob;
 use App\Models\Attendee;
 use App\Models\Event;
@@ -12,6 +13,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Refund;
+use App\Models\Ticket;
 use App\Models\TicketType;
 use App\Models\User;
 use App\Models\Vendor;
@@ -168,6 +170,58 @@ class RefundRequestTest extends TestCase
         $this->postJson("/api/v1/orders/{$order->id}/refund")->assertStatus(422);
         $this->assertDatabaseCount('refunds', 0);
         Queue::assertNotPushed(ExecuteRefundJob::class);
+    }
+
+    // --- checked-in tickets can't be refunded (ADR-37): a used seat can't be "returned" ---
+
+    public function test_a_checked_in_ticket_blocks_the_refund(): void
+    {
+        $attendee = $this->actingAttendee();
+        [$order, , $item] = $this->paidOrder($attendee, startHours: 72); // would be 100% if allowed
+
+        Ticket::create([
+            'order_id' => $order->id, 'order_item_id' => $item->id, 'ticket_type_id' => $item->ticket_type_id,
+            'qr_code' => 'QR-CHECKED-IN', 'status' => TicketStatus::CheckedIn->value, 'checked_in_at' => now(),
+        ]);
+
+        $this->postJson("/api/v1/orders/{$order->id}/refund")->assertStatus(422);
+
+        $this->assertDatabaseCount('refunds', 0);
+        Queue::assertNotPushed(ExecuteRefundJob::class);
+    }
+
+    public function test_checked_in_ticket_on_one_item_does_not_block_refunding_a_different_item(): void
+    {
+        $attendee = $this->actingAttendee();
+        $event = Event::factory()->published()->create(['starts_at' => Carbon::now()->addHours(72)]);
+
+        $checkedInType = TicketType::factory()->forEvent($event)->create(['price' => 30000, 'quantity_sold' => 1]);
+        $validType = TicketType::factory()->forEvent($event)->create(['price' => 50000, 'quantity_sold' => 1]);
+
+        $order = Order::factory()->paid()->create([
+            'attendee_id' => $attendee->id, 'total' => 80000, 'currency' => 'BDT',
+        ]);
+        $checkedInItem = OrderItem::create([
+            'order_id' => $order->id, 'ticket_type_id' => $checkedInType->id, 'quantity' => 1, 'unit_price' => 30000,
+        ]);
+        $validItem = OrderItem::create([
+            'order_id' => $order->id, 'ticket_type_id' => $validType->id, 'quantity' => 1, 'unit_price' => 50000,
+        ]);
+        Ticket::create([
+            'order_id' => $order->id, 'order_item_id' => $checkedInItem->id, 'ticket_type_id' => $checkedInType->id,
+            'qr_code' => 'QR-CHECKED-IN', 'status' => TicketStatus::CheckedIn->value, 'checked_in_at' => now(),
+        ]);
+        Payment::factory()->create([
+            'order_id' => $order->id, 'status' => PaymentStatus::Succeeded->value, 'amount' => 80000, 'currency' => 'BDT',
+        ]);
+
+        $this->postJson("/api/v1/orders/{$order->id}/refund", [
+            'items' => [['order_item_id' => $validItem->id, 'quantity' => 1]],
+        ])
+            ->assertStatus(202)
+            ->assertJsonPath('data.refund.amount', 50000);
+
+        $this->assertDatabaseCount('refunds', 1);
     }
 
     // --- partial (subset of tickets) ---
