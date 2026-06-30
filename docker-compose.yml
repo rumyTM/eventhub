@@ -42,7 +42,6 @@ services:
       - "8000:8000"
     env_file: .env
     environment:
-      APP_KEY: ${CORE_APP_KEY}
       DB_CONNECTION: mysql
       APP_PORT: 8000
       APP_DEBUG: "true"
@@ -52,6 +51,8 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${DB_ROOT_PASSWORD}
       REDIS_HOST: redis
+      QUEUE_CONNECTION: redis
+      CACHE_STORE: redis
       PAYMENT_SERVICE_URL: http://payment-service:8001
       PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
       NOTIFICATION_QUEUE_REDIS: redis://redis:6379
@@ -66,7 +67,6 @@ services:
     command: php artisan queue:work --tries=3 --verbose
     env_file: .env
     environment:
-      APP_KEY: ${CORE_APP_KEY}
       DB_CONNECTION: mysql
       APP_DEBUG: "true"
       LOG_LEVEL: debug
@@ -75,19 +75,21 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${DB_ROOT_PASSWORD}
       REDIS_HOST: redis
+      QUEUE_CONNECTION: redis
+      CACHE_STORE: redis
       PAYMENT_SERVICE_URL: http://payment-service:8001
       PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
       CORE_API_BEARER_TOKEN: ${CORE_API_BEARER_TOKEN}
       CORE_API_WEBHOOK_SECRET: ${CORE_API_WEBHOOK_SECRET}
     depends_on:
-      core-api: { condition: service_started }
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
   payment-service-worker:   # queue worker — resolves charges and delivers signed webhooks to core-api
     build: ./services/payment-service
     command: php artisan queue:work --tries=5 --verbose
     env_file: .env
     environment:
-      APP_KEY: ${PAYMENTS_APP_KEY}
       DB_CONNECTION: mysql
       APP_DEBUG: "true"
       LOG_LEVEL: debug
@@ -110,15 +112,17 @@ services:
     command: sh -c "while true; do php artisan schedule:run; sleep 60; done"
     env_file: .env
     environment:
-      APP_KEY: ${CORE_APP_KEY}
       DB_CONNECTION: mysql
       DB_HOST: mysql
       DB_DATABASE: ${CORE_DB_DATABASE}
       DB_USERNAME: root
       DB_PASSWORD: ${DB_ROOT_PASSWORD}
       REDIS_HOST: redis
+      QUEUE_CONNECTION: redis
+      CACHE_STORE: redis
     depends_on:
-      core-api: { condition: service_started }
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
   payment-service:
     build: ./services/payment-service
@@ -126,7 +130,6 @@ services:
       - "8001:8001"
     env_file: .env
     environment:
-      APP_KEY: ${PAYMENTS_APP_KEY}
       DB_CONNECTION: mysql
       APP_PORT: 8001
       APP_DEBUG: "true"

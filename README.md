@@ -29,8 +29,8 @@ vendors (signed webhooks). Full diagram and contracts in [`CLAUDE.md`](./CLAUDE.
 ## Run it (docker-compose — recommended)
 
 ```bash
-cp .env.example .env          # then fill in secrets (placeholders shown)
-docker compose up -d --build
+cp .env.example .env          # dev-only defaults are pre-filled; no manual edits needed for local use
+docker compose up -d --build  # APP_KEY is auto-generated on first boot if not set
 docker compose ps             # wait for healthy
 
 # bootstrap data

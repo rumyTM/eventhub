@@ -5,29 +5,30 @@ if [ ! -f /app/.env ] && [ -f /app/.env.example ]; then
     cp /app/.env.example /app/.env
 fi
 
-# Before starting the server, overwrite .env entries with the actual runtime
-# environment variables injected by Docker / the orchestrator.
-#
-# Why: PHP's built-in server workers rebuild $_ENV as a CGI-style environment
-# on each request, so Docker's `environment:` variables are not reliably
-# accessible via $_ENV during HTTP handling.  Laravel dotenv reads .env at
-# bootstrap, so writing the real values here — before any PHP process starts —
-# is the correct, 12-factor-compliant approach (config from the environment,
-# .env as the local fallback template).
-#
-# Only keys that already exist in .env are updated; no new keys are injected.
-# PHP is used to handle values that contain special shell/sed characters (URLs).
+# Sync Docker env vars → .env.
+# Only updates keys that already exist in .env; never injects new ones.
+# Empty values are skipped to avoid overwriting service-local defaults with blanks.
+# PHP handles values containing special shell/sed characters (URLs, passwords).
 php -r '
 $lines = file("/app/.env", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 $out   = [];
 foreach ($lines as $line) {
     if (preg_match("/^([A-Z][A-Z0-9_]*)=/", $line, $m)) {
         $runtime = getenv($m[1]);
-        $line = ($runtime !== false) ? $m[1] . "=" . $runtime : $line;
+        if ($runtime !== false && $runtime !== "") {
+            $line = $m[1] . "=" . $runtime;
+        }
     }
     $out[] = $line;
 }
 file_put_contents("/app/.env", implode("\n", $out) . "\n");
 '
+
+# Auto-generate APP_KEY if it is still missing/empty in .env.
+# This lets `cp .env.example .env && docker compose up` work out of the box.
+if ! grep -q "^APP_KEY=base64:" /app/.env 2>/dev/null; then
+    echo "[entrypoint] APP_KEY not set — generating..."
+    php artisan key:generate --force
+fi
 
 exec "$@"
