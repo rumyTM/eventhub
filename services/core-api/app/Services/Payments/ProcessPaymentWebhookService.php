@@ -11,6 +11,8 @@ use App\Exceptions\Payments\OrderSettlementIntegrityException;
 use App\Exceptions\Payments\WebhookAmountMismatchException;
 use App\Helpers\LogHelper;
 use App\Jobs\SendOrderConfirmationJob;
+use App\Jobs\SendVendorOrderWebhookJob;
+use App\Jobs\SendVendorSoldOutWebhookJob;
 use App\Models\Order;
 use App\Repositories\Contracts\LedgerEntryRepositoryInterface;
 use App\Repositories\Contracts\OrderRepositoryInterface;
@@ -125,6 +127,8 @@ final class ProcessPaymentWebhookService
         // Off the request path, and only once tickets are actually issued (never on replay/failure).
         if ($settled) {
             SendOrderConfirmationJob::dispatch($payload['order_id']);
+            SendVendorOrderWebhookJob::dispatch($payload['order_id']);
+            SendVendorSoldOutWebhookJob::dispatch($payload['order_id']);
         }
     }
 

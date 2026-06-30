@@ -25,6 +25,11 @@ final class VendorRepository implements VendorRepositoryInterface
             ->paginate($perPage);
     }
 
+    public function find(string $id): ?Vendor
+    {
+        return Vendor::query()->find($id);
+    }
+
     public function lockForUpdate(string $id): Vendor
     {
         return Vendor::query()->whereKey($id)->lockForUpdate()->firstOrFail();

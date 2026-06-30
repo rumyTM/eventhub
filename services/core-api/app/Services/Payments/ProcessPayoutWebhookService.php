@@ -6,6 +6,7 @@ use App\Enums\LedgerEntryType;
 use App\Enums\PayoutStatus;
 use App\Exceptions\Payments\PayoutWebhookMismatchException;
 use App\Jobs\SendPayoutNotificationJob;
+use App\Jobs\SendVendorPayoutWebhookJob;
 use App\Repositories\Contracts\LedgerEntryRepositoryInterface;
 use App\Repositories\Contracts\PayoutRepositoryInterface;
 use Illuminate\Support\Facades\DB;
@@ -100,6 +101,11 @@ final class ProcessPayoutWebhookService
         // payout actually resolved (not on an idempotent replay or no-op).
         if ($resolvedPayoutId !== null && $resolvedStatus !== null) {
             SendPayoutNotificationJob::dispatch($resolvedPayoutId, $resolvedStatus);
+
+            // Vendor webhook only on confirmed success — failure moves no money so there is nothing to notify.
+            if ($resolvedStatus === PayoutStatus::Paid->value) {
+                SendVendorPayoutWebhookJob::dispatch($resolvedPayoutId);
+            }
         }
     }
 }

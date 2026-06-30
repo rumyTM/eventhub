@@ -15,6 +15,9 @@ interface VendorRepositoryInterface
     /** Admin KYC review queue: vendors awaiting a decision (uses idx_vendors_kyc_status). */
     public function paginatePending(int $perPage): LengthAwarePaginator;
 
+    /** Find a vendor by primary key, or null if not found. */
+    public function find(string $id): ?Vendor;
+
     /** Re-read a vendor under a row lock (FOR UPDATE) — call inside a transaction. */
     public function lockForUpdate(string $id): Vendor;
 

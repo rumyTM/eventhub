@@ -6,12 +6,21 @@ use App\Enums\KycStatus;
 use App\Models\User;
 use App\Models\Vendor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class VendorKycTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // KYC verify/reject now dispatch SendKycDecisionEmailJob. Fake the queue so the job does
+        // not run synchronously in tests (which would attempt a real Redis connection).
+        Queue::fake();
+    }
 
     private function documentsPayload(): array
     {

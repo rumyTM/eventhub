@@ -20,7 +20,10 @@ class UserResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
-            'role' => $this->role->value,
+            'role' => [
+                'value' => $this->role->value,
+                'label' => $this->role->label(),
+            ],
             'vendor' => new VendorResource($this->whenLoaded('vendor')),
             'attendee' => new AttendeeResource($this->whenLoaded('attendee')),
             'created_at' => $this->created_at?->toIso8601String(),

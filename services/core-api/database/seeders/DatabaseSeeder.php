@@ -98,7 +98,61 @@ class DatabaseSeeder extends Seeder
             'sales_end' => now()->subDays(1),
         ]);
 
-        // ── 5. Completed event (revenue eligible for payout) ───────────────────
+        // ── 5. Ongoing event with group-bundle tickets ─────────────────────────
+        $ongoing = Event::factory()->ongoing()->forVendor($vendor)->create([
+            'title' => 'Dhaka Startup Pitch Night',
+            'description' => 'Watch 20 early-stage startups pitch live to a panel of investors and win prizes.',
+            'starts_at' => now()->subHours(1),
+            'ends_at' => now()->addHours(4),
+            'capacity' => 300,
+            'timezone' => 'Asia/Dhaka',
+        ]);
+
+        TicketType::factory()->forEvent($ongoing)->create([
+            'kind' => TicketKind::General,
+            'price' => 30000,       // 300.00 BDT
+            'quantity_total' => 200,
+            'quantity_sold' => 45,
+            'sales_start' => now()->subDays(7),
+            'sales_end' => now()->addHours(3),
+        ]);
+
+        TicketType::factory()->forEvent($ongoing)->groupBundle()->create([
+            'kind' => TicketKind::General,
+            'price' => 30000,       // 300.00 BDT per ticket; 15% off for group of 4+
+            'quantity_total' => 80,
+            'quantity_sold' => 16,
+            'sales_start' => now()->subDays(7),
+            'sales_end' => now()->addHours(3),
+        ]);
+
+        // ── 6. Second published event (workshop, no early-bird sold out) ────────
+        $workshop = Event::factory()->published()->forVendor($vendor)->create([
+            'title' => 'Laravel & Vue Workshop',
+            'description' => 'A hands-on full-day workshop covering Laravel 11 APIs and Vue 3 SPA integration.',
+            'starts_at' => now()->addDays(14),
+            'ends_at' => now()->addDays(14)->addHours(8),
+            'capacity' => 80,
+            'timezone' => 'Asia/Dhaka',
+        ]);
+
+        TicketType::factory()->forEvent($workshop)->earlyBird()->create([
+            'quantity_total' => 20,
+            'quantity_sold' => 5,
+            'sales_start' => now()->subDays(3),
+            'sales_end' => now()->addDays(7),
+        ]);
+
+        TicketType::factory()->forEvent($workshop)->create([
+            'kind' => TicketKind::General,
+            'price' => 80000,       // 800.00 BDT
+            'quantity_total' => 60,
+            'quantity_sold' => 0,
+            'sales_start' => now()->addDays(7),
+            'sales_end' => now()->addDays(13),
+        ]);
+
+        // ── 8. Completed event (revenue eligible for payout) ───────────────────
         $completed = Event::factory()->completed()->forVendor($vendor)->create([
             'title' => 'Bangladesh Open Source Day',
             'description' => 'Celebrating open-source contributions across Bangladesh.',
@@ -117,7 +171,7 @@ class DatabaseSeeder extends Seeder
             'sales_end' => now()->subDays(11),
         ]);
 
-        // ── 6. Paid order: attendee bought 3 tickets to the completed event ─────
+        // ── 9. Paid order: attendee bought 3 tickets to the completed event ─────
         $order = Order::create([
             'attendee_id' => $attendee->id,
             'status' => OrderStatus::Paid,
@@ -145,7 +199,7 @@ class DatabaseSeeder extends Seeder
             ]);
         }
 
-        // ── 7. Payment record for the order ────────────────────────────────────
+        // ── 10. Payment record for the order ───────────────────────────────────
         Payment::create([
             'order_id' => $order->id,
             'gateway' => 'stripe_sim',
@@ -156,7 +210,7 @@ class DatabaseSeeder extends Seeder
             'currency' => 'BDT',
         ]);
 
-        // ── 8. Pending payout for the vendor (75 000 gross, 10 % commission) ───
+        // ── 11. Pending payout for the vendor (75 000 gross, 10 % commission) ──
         $gross = 75000;
         $commission = (int) ($gross * 0.10);
         $net = $gross - $commission;
@@ -186,7 +240,9 @@ class DatabaseSeeder extends Seeder
             ]
         );
         $this->command->info('Seeded:');
-        $this->command->info('  · Published event  → "DhakaTech Summit 2026" (starts in 30 days)');
+        $this->command->info('  · Published event  → "DhakaTech Summit 2026" (starts in 30 days, early-bird sold out)');
+        $this->command->info('  · Ongoing event    → "Dhaka Startup Pitch Night" (in progress, group-bundle tickets)');
+        $this->command->info('  · Published event  → "Laravel & Vue Workshop" (starts in 14 days)');
         $this->command->info('  · Completed event  → "Bangladesh Open Source Day" (10 days ago)');
         $this->command->info('  · Paid order       → 3 × 250 BDT = 750 BDT (attendee@eventhub.test)');
         $this->command->info('  · Pending payout   → 675 BDT net (vendor@eventhub.test, 10 % commission)');

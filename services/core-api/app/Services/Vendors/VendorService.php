@@ -4,6 +4,7 @@ namespace App\Services\Vendors;
 
 use App\Enums\KycStatus;
 use App\Exceptions\Vendors\InvalidKycTransitionException;
+use App\Jobs\SendKycDecisionEmailJob;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Repositories\Contracts\VendorRepositoryInterface;
@@ -75,7 +76,7 @@ final class VendorService
 
     private function decide(Vendor $vendor, KycStatus $target, User $admin, ?string $rejectionReason): Vendor
     {
-        return DB::transaction(function () use ($vendor, $target, $admin, $rejectionReason): Vendor {
+        $updated = DB::transaction(function () use ($vendor, $target, $admin, $rejectionReason): Vendor {
             $locked = $this->vendors->lockForUpdate($vendor->id);
 
             if (! $locked->kyc_status->canTransitionTo($target)) {
@@ -89,5 +90,11 @@ final class VendorService
                 'rejection_reason' => $rejectionReason,
             ]);
         });
+
+        // Off the transaction, fire-and-forget. 'approved' / 'rejected' maps to the email template.
+        $decision = $target === KycStatus::Verified ? 'approved' : 'rejected';
+        SendKycDecisionEmailJob::dispatch($updated->id, $decision, $rejectionReason);
+
+        return $updated;
     }
 }
