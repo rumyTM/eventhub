@@ -1,6 +1,10 @@
 #!/bin/sh
 set -e
 
+if [ ! -f /app/.env ] && [ -f /app/.env.example ]; then
+    cp /app/.env.example /app/.env
+fi
+
 # Before starting the server, overwrite .env entries with the actual runtime
 # environment variables injected by Docker / the orchestrator.
 #

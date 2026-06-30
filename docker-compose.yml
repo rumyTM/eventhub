@@ -42,11 +42,15 @@ services:
       - "8000:8000"
     env_file: .env
     environment:
+      APP_KEY: ${CORE_APP_KEY}
+      DB_CONNECTION: mysql
       APP_PORT: 8000
       APP_DEBUG: "true"
       LOG_LEVEL: debug
       DB_HOST: mysql
       DB_DATABASE: ${CORE_DB_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD}
       REDIS_HOST: redis
       PAYMENT_SERVICE_URL: http://payment-service:8001
       PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
@@ -62,10 +66,14 @@ services:
     command: php artisan queue:work --tries=3 --verbose
     env_file: .env
     environment:
+      APP_KEY: ${CORE_APP_KEY}
+      DB_CONNECTION: mysql
       APP_DEBUG: "true"
       LOG_LEVEL: debug
       DB_HOST: mysql
       DB_DATABASE: ${CORE_DB_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD}
       REDIS_HOST: redis
       PAYMENT_SERVICE_URL: http://payment-service:8001
       PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
@@ -79,10 +87,14 @@ services:
     command: php artisan queue:work --tries=5 --verbose
     env_file: .env
     environment:
+      APP_KEY: ${PAYMENTS_APP_KEY}
+      DB_CONNECTION: mysql
       APP_DEBUG: "true"
       LOG_LEVEL: debug
       DB_HOST: mysql
       DB_DATABASE: ${PAYMENTS_DB_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD}
       REDIS_HOST: redis
       PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
       CORE_API_BEARER_TOKEN: ${CORE_API_BEARER_TOKEN}
@@ -98,8 +110,12 @@ services:
     command: sh -c "while true; do php artisan schedule:run; sleep 60; done"
     env_file: .env
     environment:
+      APP_KEY: ${CORE_APP_KEY}
+      DB_CONNECTION: mysql
       DB_HOST: mysql
       DB_DATABASE: ${CORE_DB_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD}
       REDIS_HOST: redis
     depends_on:
       core-api: { condition: service_started }
@@ -110,11 +126,15 @@ services:
       - "8001:8001"
     env_file: .env
     environment:
+      APP_KEY: ${PAYMENTS_APP_KEY}
+      DB_CONNECTION: mysql
       APP_PORT: 8001
       APP_DEBUG: "true"
       LOG_LEVEL: debug
       DB_HOST: mysql
       DB_DATABASE: ${PAYMENTS_DB_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD}
       REDIS_HOST: redis
       PAYMENT_SERVICE_TOKEN: ${PAYMENT_SERVICE_TOKEN}
       CORE_API_URL: http://core-api:8000
